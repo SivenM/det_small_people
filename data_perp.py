@@ -4,7 +4,10 @@ from numpy import ndarray
 import utils
 import torch
 import cv2
-#from torch import Tensor
+import pickle
+from torch import Tensor
+from torch.utils.data import Dataset
+from torchvision.transforms import ToTensor
 #from torchvision.io import read_image
 #import torchvision.transforms as transforms
 from tqdm import tqdm
@@ -44,19 +47,56 @@ class CropsLoader:
         else:
             return crops
 
+    def get_crops(self, ann:dict) -> list:
+        crop_list = []
+        for j, frame_num in enumerate(ann['frames']):
+            img = self.load_img(frame_num)
+            coords = ann['coords'][j]
+            crop = self.crop(img, coords)
+            crop_list.append(crop)
+        return crop_list
+    
+    def exctruct_obj(self, ann:dict) -> tuple:
+        """
+        Возвращяет объект в виде кропов кусками размером chunk_size
+        и номером класса (человек = 1)
+        """
+        crop_list = self.get_crops(ann)    
+        chunks = self.to_chunks(crop_list)
+        cls = np.ones((len(chunks),))
+        return (chunks, cls)
+
     def load_data(self) -> list[tuple]:
         data = []
         for i in tqdm(range(len(self.ann_names)), desc='anns'):
             ann_name = self.ann_names[i]
             ann = self.load_ann(ann_name)
             if ann['label'] == 'human':
-                crop_list = []
-                for j, frame_num in enumerate(ann['frames']):
-                    img = self.load_img(frame_num)
-                    coords = ann['coords'][j]
-                    crop = self.crop(img, coords)
-                    crop_list.append(crop)    
-                chunks = self.to_chunks(crop_list)
-                data.append((chunks, np.ones((len(chunks),))))
+                obj = self.exctruct_obj(ann)
+                data.append(obj)
         return data
 
+
+
+class CropDataset(Dataset):
+    
+    def __init__(self, data_dir, transform=None) -> None:
+        super().__init__()
+        self.data_dir = data_dir
+        self.data_names = os.listdir(data_dir)
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.data_names)
+    
+    def from_pickle(self, data_path:str):
+        with open(data_path, "rb") as file:
+            data = pickle.load(file)
+        return data
+
+    def __getitem__(self, index:int):
+        data_path = os.path.join(self.data_dir, self.data_names[index])
+        sample, label = self.from_pickle(data_path)
+        return sample, label
+    
+    
