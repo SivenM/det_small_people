@@ -150,3 +150,6 @@ class VisTransformer(nn.Module):
     def __init__(self, num_blocks, encoder_type, num_cls) -> None:
         super().__init__()
         pass
+
+    def forward(self, x):
+        pass
