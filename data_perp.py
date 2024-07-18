@@ -1,6 +1,7 @@
 import os
 import numpy as np
 from numpy import ndarray
+import random
 import utils
 import torch
 import cv2
@@ -13,25 +14,34 @@ from torchvision.transforms import ToTensor
 from tqdm import tqdm
 
 
-class CropsLoader:
+class Loader:
 
-    def __init__(self, ann_dir, img_dir, chunk_size=10) -> None:
+    def __init__(self, img_dir, ann_dir) -> None:
+        self.img_dir = img_dir
         self.ann_dir = ann_dir
         self.ann_names = os.listdir(self.ann_dir)
-        self.img_dir = img_dir
-        self.chunk_size = chunk_size
-        #self.obj_data = self._load_data()
-    
+
     def load_img(self, frame_num:int) -> ndarray:
         img_name = str(frame_num-1) + '.jpg'
         img_path = os.path.join(self.img_dir, img_name)
         img =  cv2.imread(img_path)
         assert type(img) == ndarray, f'frame num: {frame_num}\npath: {img_path}'
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img = np.expand_dims(img, axis=-1)
         return img
 
     def load_ann(self, ann_name:str) -> dict|list:
         ann_path = os.path.join(self.ann_dir, ann_name)
         return utils.load_json(ann_path)
+
+
+class CropsLoader(Loader):
+
+    def __init__(self, img_dir:str, ann_dir:str, chunk_size=10) -> None:
+        super().__init__(img_dir, ann_dir)
+        print(f'num objects: {len(self.ann_names)}')
+        self.chunk_size = chunk_size
+        #self.obj_data = self._load_data()
 
     def crop(self, img:ndarray, crop:list) -> ndarray:
         return img[crop[1]:crop[3], crop[0]:crop[2], :]
@@ -42,7 +52,7 @@ class CropsLoader:
         if num_chunks > 0:
             for i in range(num_chunks):
                 chunk = crops[i*self.chunk_size: (i+1) * self.chunk_size]
-                chunk_list.append(chunk)
+                chunk_list.append((chunk, 1))
             return chunk_list
         else:
             return crops
@@ -56,26 +66,117 @@ class CropsLoader:
             crop_list.append(crop)
         return crop_list
     
-    def exctruct_obj(self, ann:dict) -> tuple:
+    def exctruct_obj(self, ann:dict) -> list[tuple]:
         """
-        Возвращяет объект в виде кропов кусками размером chunk_size
-        и номером класса (человек = 1)
+        Возвращяет список размером chunk_size с чанками 
+        и номером класса (человек = 1) соответствующим им
         """
         crop_list = self.get_crops(ann)    
         chunks = self.to_chunks(crop_list)
-        cls = np.ones((len(chunks),))
-        return (chunks, cls)
+        return chunks
 
     def load_data(self) -> list[tuple]:
         data = []
         for i in tqdm(range(len(self.ann_names)), desc='anns'):
             ann_name = self.ann_names[i]
             ann = self.load_ann(ann_name)
-            if ann['label'] == 'human':
+            if ann['label'].lower() == 'human':
                 obj = self.exctruct_obj(ann)
-                data.append(obj)
+                data += obj
         return data
 
+
+class BgGenerator(Loader):
+
+    def __init__(self, img_dir:str=None, ann_dir:str=None, range_hieght:tuple|list=(), range_width:tuple|list=(), chunk_size:int=10, img_size:tuple=(480, 640)) -> None:
+        super().__init__(img_dir, ann_dir)
+        self.dataset_name = ann_dir.split('/')[-2]
+        self.chunk_size = chunk_size
+        self.img_size = img_size
+        self.range_height = range_hieght
+        self.range_width = range_width
+
+    def get_random_ann(self):
+        ann = {}
+        while True:
+            idx = random.randint(0, len(self.ann_names))
+            ann_name = self.ann_names[idx]
+            path = os.path.join(self.ann_dir, ann_name)
+            ann = self.load_ann(path)
+            if ann['num_objects'] > 0:
+                    return ann
+
+    def get_coords(self, ann:dict) -> list[list]:
+        coords = []
+        for obj in ann['objects']:
+            coords.append(obj['corner_bboxes'])
+        return coords
+
+    def create_bg(self) -> ndarray:
+        top_x = random.randint(0, self.img_size[1])
+        top_y = random.randint(0, self.img_size[0])
+        width = random.randint(self.range_width[0], self.range_width[1])
+        height = random.randint(self.range_height[0], self.range_height[1])
+        bg_coord = np.array([top_x, top_y, top_x + width, top_y + height])
+        return bg_coord
+
+    def __iou_base(self, target:ndarray, crops:ndarray):
+        lu = np.maximum(crops[:, :2], target[:2])
+        rd = np.minimum(crops[:, 2:], target[2:])
+        intersection = np.maximum(0.0, rd - lu)
+        intersection_area = intersection[:, 0] * intersection[:, 1]
+        target_area = (target[2] - target[0]) * (target[3] - target[1])
+        crops_area = (crops[:, 2] - crops[:, 0]) * (crops[:, 3] - crops[:, 1])
+        union_area = np.maximum(crops_area + target_area - intersection_area, 1e-8)
+        return np.clip(intersection_area / union_area, 0.0, 1.0)
+    
+    def check_overlap(self, target:ndarray, crops:ndarray):
+        lu = np.maximum(crops[:, :2], target[:2])
+        rd = np.minimum(crops[:, 2:], target[2:])
+        intersection = np.maximum(0.0, rd - lu)
+        intersection_area = intersection[:, 0] * intersection[:, 1]
+        target_area = (target[2] - target[0]) * (target[3] - target[1])
+        return np.clip(intersection_area / target_area, 0.0, 1.0)
+
+    def load_imgs_bg(self, start_frame_name:int) -> ndarray:
+        imgs = [self.load_img(i) for i in range(start_frame_name, start_frame_name + self.chunk_size)]
+        imgs = np.array(imgs)
+        return imgs
+
+    def crop_bg(self, bg_coord:list, imgs:ndarray|list) -> tuple:
+        label = 0
+        if type(imgs) == list:
+            imgs = np.array(imgs)
+        
+        bg = imgs[:, bg_coord[1]:bg_coord[3], bg_coord[0]:bg_coord[2], :]
+        #out = list(map(lambda x: (x[0], x[1]), zip(bg, labels)))
+        return (bg, label)
+
+    def update_bg(self, obj_coords:ndarray) -> ndarray:
+        while True:
+            bg_coords = self.create_bg()
+            iou = self.check_overlap(bg_coords, obj_coords)
+            if len(np.where(iou < 0.3))[0] > 0:
+                return bg_coords
+
+    def save(self, data:tuple, num:int, save_dir:str):
+        save_path = os.path.join(save_dir, self.dataset_name + '_' + str(num) + '.pickle')
+        utils.save_pickle(data, save_path)
+
+    def generate(self, num:int, save_dir) -> None:
+        print('generating')
+        for i in tqdm(range(num), desc='bg samples'):
+            ann = self.get_random_ann()
+            obj_coords = self.get_coords(ann)
+            bg_coords = self.create_bg()
+            iou = self.check_overlap(bg_coords, obj_coords)
+            if len(np.where(iou > 0.3))[0] > 0:
+                bg_coords = self.update_bg(obj_coords)
+            imgs = self.load_imgs_bg(int(ann['name']))
+            bg_crops_labels = self.crop_bg(bg_coords, imgs)
+            self.save(bg_crops_labels, i, save_dir)
+        print('done!')
+        print(f'saved in {save_dir}')
 
 
 class CropDataset(Dataset):
@@ -97,6 +198,4 @@ class CropDataset(Dataset):
     def __getitem__(self, index:int):
         data_path = os.path.join(self.data_dir, self.data_names[index])
         sample, label = self.from_pickle(data_path)
-        return sample, label
-    
-    
+        return sample, label    

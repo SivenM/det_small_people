@@ -2,3 +2,5 @@ tests
 .pytest_cache
 __pycache__
 datasets_paths.txt
+data
+data_human

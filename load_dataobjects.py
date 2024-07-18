@@ -38,8 +38,9 @@ def save(data:list, save_dir:str, dataset_name:str) -> None:
 
 
 def main(dataset_path:str) -> None:
-    dataset_name = dataset_path.split('/')[0]
+    dataset_name = dataset_path.split('/')[-1]
     data = get_dataset(dataset_path)
+    assert len(data) > 0
     save(data, SAVE_DIR, dataset_name)
 
 
