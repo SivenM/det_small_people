@@ -19,11 +19,16 @@ class PatchEncoderLinear(nn.Module):
 class PatchEncoderConv2D(nn.Module):
     def __init__(self, num_patches, emb_dim, P, C):
         super().__init__()
+        self.emb_dim = emb_dim
+        self.num_patches = num_patches
         self.conv_layer = nn.Conv2d(C, emb_dim, kernel_size=P, stride=P)
         self.pos_emb = nn.Parameter(torch.randn(num_patches, emb_dim))
-
+    
     def forward(self, img:Tensor) -> Tensor:
-        pass
+        batch = img.shape[0]
+        patches = self.conv_layer(img)
+        patches = patches.reshape(batch, self.emb_dim, self.num_patches).swapaxes(1,2)
+        return patches + self.pos_emb
 
 
 class PatchEncoderPad(nn.Module):
@@ -85,7 +90,7 @@ class MultiHeadAttention(nn.Module):
         self.num_heads = num_heads
         self.emb_dim = emb_dim
 
-        assert emb_dim % num_heads == 0
+        assert emb_dim % num_heads == 0, f'emb_dim: {emb_dim} | num_heads: {num_heads} | {emb_dim % num_heads}'
         self.key_dim = emb_dim // num_heads
 
         self.attention_list = [SelfAttention(emb_dim, self.key_dim) for _ in range(num_heads)]
@@ -115,7 +120,7 @@ class MLP(nn.Module):
     
 
 class TransformerBlock(nn.Module):
-    def __init__(self, emb_dim=256, num_heads=12, hidden_dim=1024, dropout_prob=0.1) -> None:
+    def __init__(self, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
         super().__init__()
         self.MSA = MultiHeadAttention(emb_dim, num_heads)
         self.MLP = MLP(emb_dim, hidden_dim)
@@ -147,9 +152,27 @@ class TransformerBlock(nn.Module):
     
 
 class VisTransformer(nn.Module):
-    def __init__(self, num_blocks, encoder_type, num_cls) -> None:
+    def __init__(self, num_blocks:int, encoder_type:str='pad', num_cls:int=1) -> None:
         super().__init__()
-        pass
+        self.num_blocks = num_blocks
+        self.num_cls = num_cls
+        if encoder_type == 'pad':
+            self.encoder = PatchEncoderPad((50,50))
+        else:
+            self.encoder = PatchEncoderConv2D(10, 256, 5, 1)
+        self.transformer_blocks = nn.Sequential(
+            *[TransformerBlock() for _ in range(num_blocks)]
+        )
+        self.glob_avg = nn.AvgPool2d((100, 256)) #TODO нужны доп тесты
+        self.head = nn.Sequential(
+            nn.Linear(1, 200),
+            nn.GELU(),
+            nn.Linear(200, num_cls)
+        )
 
     def forward(self, x):
-        pass
+        encoded = self.encoder(x)
+        blocks_out = self.transformer_blocks(encoded)
+        avg = self.glob_avg(blocks_out).squeeze(1)
+        out = self.head(avg)
+        return out
