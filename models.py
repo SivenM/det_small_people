@@ -37,23 +37,31 @@ class PatchEncoderPad(nn.Module):
         self.patch_size = patch_size
 
     def get_pad_h(self, h:int):
-        assert h > self.patch_size[0], f"Height ({h}) must be lower than patch_size {self.patch_size[0]}"
+        assert h <= self.patch_size[0], f"Height ({h}) must be lower than patch_size {self.patch_size[0]}"
         if h == self.patch_size[0]:
-            return 0
+            return (0,0)
         else:
-            return self.patch_size[0] - h
+            diff = self.patch_size[-1] - h
+            if diff % 2 == 0:
+                return (diff // 2, diff // 2)
+            else:
+                return (diff // 2, diff // 2 + 1)
         
     def get_pad_w(self, w:int):
-        assert w > self.path_size[-1], f"Height ({w}) must be lower than patch_size {self.patch_size[-1]}"
+        assert w <= self.patch_size[-1], f"Height ({w}) must be lower than patch_size {self.patch_size[-1]}"
         if w == self.patch_size[0]:
-            return 0
+            return (0,0)
         else:
-            return self.patch_size[-1] - w
+            diff = self.patch_size[-1] - w
+            if diff % 2 == 0:
+                return (diff // 2, diff // 2)
+            else:
+                return (diff // 2, diff // 2 + 1)
         
     def get_pad(self, img:Tensor, h:int, w:int):
         pad_h = self.get_pad_h(h)
         pad_w = self.get_pad_w(w)
-        padded_img = F.pad(img, (pad_w//2, pad_w//2, pad_h//2, pad_h//2), 'constant', 0)
+        padded_img = F.pad(img, (pad_w[0], pad_w[1], pad_h[0], pad_h[1]), 'constant', 0)
         return padded_img
     
     def forward(self, img):
@@ -157,13 +165,16 @@ class VisTransformer(nn.Module):
         self.num_blocks = num_blocks
         self.num_cls = num_cls
         if encoder_type == 'pad':
-            self.encoder = PatchEncoderPad((50,50))
+            self.encoder = nn.Sequential(
+                PatchEncoderPad((50,50)),
+                PatchEncoderConv2D(100, 256, 5, 10)
+            )
         else:
             self.encoder = PatchEncoderConv2D(10, 256, 5, 1)
         self.transformer_blocks = nn.Sequential(
             *[TransformerBlock() for _ in range(num_blocks)]
         )
-        self.glob_avg = nn.AvgPool2d((100, 256)) #TODO нужны доп тесты
+        self.glob_avg = nn.AdaptiveAvgPool2d((1,1))
         self.head = nn.Sequential(
             nn.Linear(1, 200),
             nn.GELU(),

@@ -4,3 +4,4 @@ __pycache__
 datasets_paths.txt
 data
 data_human
+data_bg

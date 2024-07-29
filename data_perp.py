@@ -12,6 +12,7 @@ from torchvision.transforms import ToTensor
 #from torchvision.io import read_image
 #import torchvision.transforms as transforms
 from tqdm import tqdm
+from loguru import logger
 
 
 class Loader:
@@ -19,7 +20,7 @@ class Loader:
     def __init__(self, img_dir, ann_dir) -> None:
         self.img_dir = img_dir
         self.ann_dir = ann_dir
-        self.ann_names = os.listdir(self.ann_dir)
+        self.ann_names = np.arange(1, len(os.listdir(self.ann_dir))-3)
 
     def load_img(self, frame_num:int) -> ndarray:
         img_name = str(frame_num-1) + '.jpg'
@@ -99,18 +100,18 @@ class BgGenerator(Loader):
     def get_random_ann(self):
         ann = {}
         while True:
-            idx = random.randint(0, len(self.ann_names))
-            ann_name = self.ann_names[idx]
+            idx = random.randint(1, len(self.ann_names)-3)
+            ann_name = str(self.ann_names[idx]) + '.json'
             path = os.path.join(self.ann_dir, ann_name)
             ann = self.load_ann(path)
             if ann['num_objects'] > 0:
                     return ann
 
-    def get_coords(self, ann:dict) -> list[list]:
+    def get_coords(self, ann:dict) -> ndarray:
         coords = []
         for obj in ann['objects']:
             coords.append(obj['corner_bboxes'])
-        return coords
+        return np.array(coords)
 
     def create_bg(self) -> ndarray:
         top_x = random.randint(0, self.img_size[1])
@@ -156,7 +157,7 @@ class BgGenerator(Loader):
         while True:
             bg_coords = self.create_bg()
             iou = self.check_overlap(bg_coords, obj_coords)
-            if len(np.where(iou < 0.3))[0] > 0:
+            if len(np.where(iou < 0.3)[0]) > 0:
                 return bg_coords
 
     def save(self, data:tuple, num:int, save_dir:str):
@@ -167,10 +168,13 @@ class BgGenerator(Loader):
         print('generating')
         for i in tqdm(range(num), desc='bg samples'):
             ann = self.get_random_ann()
+            if int(ann['name']) > self.ann_names[-1]:
+                print(int(ann['name']))
+                continue
             obj_coords = self.get_coords(ann)
             bg_coords = self.create_bg()
             iou = self.check_overlap(bg_coords, obj_coords)
-            if len(np.where(iou > 0.3))[0] > 0:
+            if len(np.where(iou > 0.3)[0]) > 0:
                 bg_coords = self.update_bg(obj_coords)
             imgs = self.load_imgs_bg(int(ann['name']))
             bg_crops_labels = self.crop_bg(bg_coords, imgs)
