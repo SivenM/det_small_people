@@ -3,14 +3,12 @@ import numpy as np
 from numpy import ndarray
 import random
 import utils
-import torch
 import cv2
 import pickle
-from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor
-#from torchvision.io import read_image
-#import torchvision.transforms as transforms
+import torch.nn.functional as F
+import torch
+from torch import Tensor
 from tqdm import tqdm
 from loguru import logger
 
@@ -183,23 +181,101 @@ class BgGenerator(Loader):
         print(f'saved in {save_dir}')
 
 
+class Pad():
+
+    def __init__(self, patch_size:tuple, ):
+        self.patch_size = patch_size
+
+    def get_pad_h(self, h:int):
+        assert h <= self.patch_size[0], f"Height ({h}) must be lower than patch_size {self.patch_size[0]}"
+        if h == self.patch_size[0]:
+            return (0,0)
+        else:
+            diff = self.patch_size[-1] - h
+            if diff % 2 == 0:
+                return (diff // 2, diff // 2)
+            else:
+                return (diff // 2, diff // 2 + 1)
+        
+    def get_pad_w(self, w:int):
+        assert w <= self.patch_size[-1], f"Height ({w}) must be lower than patch_size {self.patch_size[-1]}"
+        if w == self.patch_size[0]:
+            return (0,0)
+        else:
+            diff = self.patch_size[-1] - w
+            if diff % 2 == 0:
+                return (diff // 2, diff // 2)
+            else:
+                return (diff // 2, diff // 2 + 1)
+    
+    def get_pad(self, img:Tensor):
+        _, h, w = img.shape
+
+        pad_h = self.get_pad_h(h)
+        pad_w = self.get_pad_w(w)
+        padded_img = F.pad(img, (pad_w[0], pad_w[1], pad_h[0], pad_h[1]), 'constant', 0)
+        return padded_img
+
+
 class CropDataset(Dataset):
     
-    def __init__(self, data_dir, transform=None) -> None:
+    def __init__(self, json_path, transform=None, target_transforms=None, pad_size:tuple=(50,50)) -> None:
         super().__init__()
-        self.data_dir = data_dir
-        self.data_names = os.listdir(data_dir)
+        self.pad_size = pad_size
+        if pad_size:
+            self.pad = Pad(pad_size)
+        else:
+            self.pad = None
+        self.path_list = self._load(json_path)
         self.transform = transform
+        self.target_transforms = target_transforms
 
     def __len__(self):
-        return len(self.data_names)
+        return len(self.path_list)
+
+    def _load(self, path):
+        return utils.load_json(path)
     
     def from_pickle(self, data_path:str):
         with open(data_path, "rb") as file:
             data = pickle.load(file)
         return data
 
+    def resize_crops(self, sample:list) -> list:
+        h, w = sample[0].shape[:2]
+        if h > self.pad_size[0]:
+            h = self.pad_size[0]
+        if w > self.pad_size[1]:
+            w = self.pad_size[1]
+        
+        out = []
+        for i in range(0, len(sample)):
+            img = sample[i]
+            assert type(img) == np.ndarray
+            assert len(img.shape) == 3
+            assert img.shape[-1] == 1
+            #logger.info(img.shape)
+            resized = cv2.resize(img, (h, w))
+            out.append(np.expand_dims(resized, axis=-1))
+        return np.stack(out)
+    
+    def prepare_sample(self, sample:list) -> np.ndarray:
+        
+        #    sample_np = np.stack(sample)
+        sample_np = self.resize_crops(sample)
+        t, w, h, c = sample_np.shape
+        sample_np_r = sample_np.reshape(h, w, t*c)
+        return sample_np_r
+
     def __getitem__(self, index:int):
-        data_path = os.path.join(self.data_dir, self.data_names[index])
+        data_path = self.path_list[index]
         sample, label = self.from_pickle(data_path)
+        assert len(sample) == 10
+        sample = self.prepare_sample(sample)
+        if self.transform:
+            sample = self.transform(sample)
+        if self.target_transforms:
+            label = self.target_transforms(label)
+        if self.pad:
+            sample = self.pad.get_pad(sample)
         return sample, label    

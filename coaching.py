@@ -19,7 +19,8 @@ class Coach:
             self.tensorboard = TensorBoard(f'{name}/tb')
 
     def fit(self, model, epoches, train_data, val_data):
-        pass
+        for epoch in range(epoches):
+            pass
 
     def fit_models(self, model_list,epoches, train_data, val_data):
         pass
