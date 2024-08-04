@@ -16,6 +16,7 @@ class Coach:
         self.logs_dir = f'{BASE_DIR}/{name}/logs'
         self.save_dir = f'{BASE_DIR}/{name}/models/'
         self.device = device
+        
         if logger:
             self.logger = CSVLogger(self.logs_dir)
         else:
@@ -30,6 +31,12 @@ class Coach:
             self.tboard = TensorBoard(f'{BASE_DIR}/{name}/tb')
         else:
             self.tboard = None
+        self.history = {
+            't_loss': [],
+            'v_loss': [],
+            't_acc': [],
+            'v_acc': []
+        }
 
     def __create_dirs(self, name):
         exp_dir = os.path.join(BASE_DIR, name)
@@ -97,6 +104,17 @@ class Coach:
         v_acc = v_acc / len(data)
         return v_loss, v_acc
 
+    def clear_history(self):
+        self.history['t_loss'] = []
+        self.history['v_loss'] = []
+        self.history['t_acc'] = []
+        self.history['v_acc'] = []
+
+    def update_history(self, t_loss, v_loss, t_acc, v_acc):
+        self.history['t_loss'].append(t_loss)
+        self.history['v_loss'].append(v_loss)
+        self.history['t_acc'].append(t_acc)
+        self.history['v_acc'].append(v_acc)
 
     def update_callbacks(self, epoch, t_loss, v_loss, t_acc, v_acc):
         if self.logger:
@@ -108,7 +126,11 @@ class Coach:
         if self.tboard:
             self.tboard.add([t_loss, v_loss, t_acc, v_acc], epoch)
 
+    def plot_history(self):
+        pass
+
     def fit(self, epoches, model, loss_fn, optimizer, train_data, val_data=None):
+        self.clear_history()
         self.model = model.to(self.device)
         self.loss_fn = loss_fn
         self.optimizer = optimizer
@@ -119,7 +141,10 @@ class Coach:
             else:
                 v_loss, v_acc = 0., 0.
             self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc)
+            self.update_history(t_loss, v_loss, t_acc, v_acc)
+        
         torch.save(model.state(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
+        return self.history
 
 
 class ObjCoach:
