@@ -1,24 +1,28 @@
+import os
 import csv
 import torch
 from torch.utils.tensorboard import SummaryWriter
+import utils
 
 
 class CSVLogger:
-    def __init__(self, filepath):
-        self.filepath = filepath
-        with open(self.filename, 'w', newline='') as f:
+    def __init__(self, dir_path):
+        utils.mkdir(dir_path)
+        self.filepath = os.path.join(dir_path, 'logs.csv')
+        with open(self.filepath, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'val_acc'])
 
     def log(self, epoch:int, loss:float, val_loss:float, acc:float, val_acc:float):
-        with open(self.filename, 'a', newline='') as f:
+        with open(self.filepath, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([epoch, loss, val_loss, acc, val_acc])
 
 
 class ModelCheckpoint:
-    def __init__(self, filepath, monitor='val_loss', mode='min', save_best_only=True):
-        self.filepath = filepath
+    def __init__(self, dir_path, monitor='val_loss', mode='min', save_best_only=True):
+        utils.mkdir(dir_path)
+        self.filepath = os.path.join(dir_path, 'best_acc{}.pth')
         self.monitor = monitor
         self.mode = mode
         self.save_best_only = save_best_only
@@ -35,7 +39,7 @@ class ModelCheckpoint:
             if (self.mode == 'min' and current < self.best) or (self.mode == 'max' and current > self.best):
                 self.best = current
                 torch.save(model.state_dict(), self.filepath)
-                print(f"Model improved at epoch {epoch+1}. Saving model to {self.filepath}")
+                print(f"Model improved at epoch {epoch+1}. Saving model to {self.filepath.format(current)}")
         else:
             torch.save(model.state(), self.filepath)
             print(f"Saving model at epoch {epoch+1} to {self.filepath}")

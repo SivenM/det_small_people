@@ -160,7 +160,7 @@ class TransformerBlock(nn.Module):
     
 
 class VisTransformer(nn.Module):
-    def __init__(self, num_blocks:int, encoder_type:str='pad', num_cls:int=1) -> None:
+    def __init__(self, num_blocks:int, encoder_type:str=None, num_cls:int=1) -> None:
         super().__init__()
         self.num_blocks = num_blocks
         self.num_cls = num_cls
@@ -176,9 +176,10 @@ class VisTransformer(nn.Module):
         )
         self.glob_avg = nn.AdaptiveAvgPool2d((1,1))
         self.head = nn.Sequential(
-            nn.Linear(1, 200),
+            nn.Linear(1, 256),
             nn.GELU(),
-            nn.Linear(200, num_cls)
+            nn.Linear(256, num_cls),
+            nn.Sigmoid()
         )
 
     def forward(self, x):

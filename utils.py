@@ -1,4 +1,5 @@
 import json
+import os
 import torch
 from torch import Tensor
 import numpy as np
@@ -63,3 +64,8 @@ def show_crop_sample(sample:ndarray|Tensor, label:ndarray|Tensor):
             plt.imshow(crop.squeeze(), cmap='gray')
         else:
             plt.imshow(crop, cmap='gray')
+
+
+def mkdir(path:str) -> None:
+    if os.path.exists(path) == False:
+        os.mkdir(path)    
