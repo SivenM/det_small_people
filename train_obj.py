@@ -37,5 +37,6 @@ if __name__ == '__main__':
         'num_blocks': 1,
         'epoches': 100,
         'lr': 0.001,
-
     }
+
+    main(config)
