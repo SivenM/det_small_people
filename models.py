@@ -3,7 +3,7 @@ import torch
 from torch import nn
 from torch import Tensor
 import torch.nn.functional as F
-
+from loguru import logger
 
 class PatchEncoderLinear(nn.Module):
     def __init__(self, num_patches, token_dim, emb_dim):
@@ -27,6 +27,7 @@ class PatchEncoderConv2D(nn.Module):
     def forward(self, img:Tensor) -> Tensor:
         batch = img.shape[0]
         patches = self.conv_layer(img)
+        #logger.info(f'tensor shape{patches.shape}')
         patches = patches.reshape(batch, self.emb_dim, self.num_patches).swapaxes(1,2)
         return patches + self.pos_emb
 
@@ -170,7 +171,7 @@ class VisTransformer(nn.Module):
                 PatchEncoderConv2D(100, 256, 5, 10)
             )
         else:
-            self.encoder = PatchEncoderConv2D(10, 256, 5, 1)
+            self.encoder = PatchEncoderConv2D(100, 256, 5, 10)
         self.transformer_blocks = nn.Sequential(
             *[TransformerBlock() for _ in range(num_blocks)]
         )
@@ -178,8 +179,7 @@ class VisTransformer(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(1, 256),
             nn.GELU(),
-            nn.Linear(256, num_cls),
-            nn.Sigmoid()
+            nn.Linear(256, num_cls)
         )
 
     def forward(self, x):
@@ -187,4 +187,4 @@ class VisTransformer(nn.Module):
         blocks_out = self.transformer_blocks(encoded)
         avg = self.glob_avg(blocks_out).squeeze(1)
         out = self.head(avg)
-        return out
+        return out.squeeze()

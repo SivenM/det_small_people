@@ -6,6 +6,7 @@ from torch import nn
 from torcheval.metrics.functional import binary_accuracy
 from callbacks import CSVLogger, ModelCheckpoint, TensorBoard
 import utils
+from loguru import logger
 
 BASE_DIR = "runs"
 
@@ -129,11 +130,11 @@ class Coach:
     def plot_history(self):
         pass
 
-    def fit(self, epoches, model, loss_fn, optimizer, train_data, val_data=None):
+    def fit(self, epoches, model, loss_fn, lr, train_data, val_data=None):
         self.clear_history()
         self.model = model.to(self.device)
         self.loss_fn = loss_fn
-        self.optimizer = optimizer
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         for epoch in tqdm(range(epoches)):
             t_loss, t_acc = self.train_step(epoch, train_data)
             if val_data:
@@ -143,7 +144,7 @@ class Coach:
             self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc)
             self.update_history(t_loss, v_loss, t_acc, v_acc)
         
-        torch.save(model.state(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
+        torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
         return self.history
 
 

@@ -22,7 +22,7 @@ class CSVLogger:
 class ModelCheckpoint:
     def __init__(self, dir_path, monitor='val_loss', mode='min', save_best_only=True):
         utils.mkdir(dir_path)
-        self.filepath = os.path.join(dir_path, 'best_acc{}.pth')
+        self.filepath = os.path.join(dir_path, 'best_loss_{:.2f}.pth')
         self.monitor = monitor
         self.mode = mode
         self.save_best_only = save_best_only
@@ -41,8 +41,8 @@ class ModelCheckpoint:
                 torch.save(model.state_dict(), self.filepath)
                 print(f"Model improved at epoch {epoch+1}. Saving model to {self.filepath.format(current)}")
         else:
-            torch.save(model.state(), self.filepath)
-            print(f"Saving model at epoch {epoch+1} to {self.filepath}")
+            torch.save(model.state_dict(), self.filepath)
+            print(f"Saving model at epoch {epoch+1} to {self.filepath.format(current)}")
 
 
 class TensorBoard:
