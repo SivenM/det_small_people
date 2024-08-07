@@ -40,7 +40,7 @@ class CropsLoader(Loader):
         super().__init__(img_dir, ann_dir)
         print(f'num objects: {len(self.ann_names)}')
         self.chunk_size = chunk_size
-        #self.obj_data = self._load_data()
+        self.ann_names = os.listdir(ann_dir)
 
     def crop(self, img:ndarray, crop:list) -> ndarray:
         return img[crop[1]:crop[3], crop[0]:crop[2], :]
@@ -76,8 +76,7 @@ class CropsLoader(Loader):
 
     def load_data(self) -> list[tuple]:
         data = []
-        for i in tqdm(range(len(self.ann_names)), desc='anns'):
-            ann_name = self.ann_names[i]
+        for ann_name in tqdm(self.ann_names, desc='anns'):
             ann = self.load_ann(ann_name)
             if ann['label'].lower() == 'human':
                 obj = self.exctruct_obj(ann)
@@ -114,8 +113,12 @@ class BgGenerator(Loader):
     def create_bg(self) -> ndarray:
         top_x = random.randint(0, self.img_size[1])
         top_y = random.randint(0, self.img_size[0])
-        width = random.randint(self.range_width[0], self.range_width[1])
-        height = random.randint(self.range_height[0], self.range_height[1])
+        running = True
+        while running:
+            width = random.randint(self.range_width[0], self.range_width[1])
+            height = random.randint(self.range_height[0], self.range_height[1])
+            if width < height:
+                running = False
         bg_coord = np.array([top_x, top_y, top_x + width, top_y + height])
         return bg_coord
 
@@ -255,17 +258,15 @@ class CropDataset(Dataset):
             assert len(img.shape) == 3
             assert img.shape[-1] == 1
             #logger.info(img.shape)
-            resized = cv2.resize(img, (h, w))
+            resized = cv2.resize(img, (w, h))
             out.append(np.expand_dims(resized, axis=-1))
-        return np.stack(out)
+        return np.concatenate(out, axis=2)
     
     def prepare_sample(self, sample:list) -> np.ndarray:
         
         #    sample_np = np.stack(sample)
         sample_np = self.resize_crops(sample)
-        t, w, h, c = sample_np.shape
-        sample_np_r = sample_np.reshape(h, w, t*c)
-        return sample_np_r
+        return sample_np
 
     def __getitem__(self, index:int):
         data_path = self.path_list[index]

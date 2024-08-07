@@ -179,7 +179,8 @@ class VisTransformer(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(1, 256),
             nn.GELU(),
-            nn.Linear(256, num_cls)
+            nn.Linear(256, num_cls),
+            nn.Sigmoid()
         )
 
     def forward(self, x):

@@ -22,7 +22,7 @@ def main(config:dict):
     val_dataset = CropDataset('data/val.json', sample_transforms, target_transforms)
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=True)
-    loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.BCELoss()
     #optimizator = torch.optim.Adam(model.parameters(), lr=config['lr'])
 
     coach.fit(
@@ -37,8 +37,8 @@ def main(config:dict):
 
 if __name__ == '__main__':
     config = {
-        'name': 'exp1_obj_nblocks5_ep50',
-        'num_blocks': 5,
+        'name': 'exp2_obj_nblocks1_ep50',
+        'num_blocks': 1,
         'epoches': 50,
         'lr': 0.001,
     }

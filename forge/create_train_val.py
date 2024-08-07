@@ -39,6 +39,6 @@ def run(human_dir_path:str, bg_dir_path:str, save_dir:str=SAVE_DIR, val_size=0.3
 
 
 if __name__ == '__main__':
-    human_dir_path =  "data/data_human"
+    human_dir_path =  "data/human_data"
     bg_dif_path = "data/data_bg"
     run(human_dir_path, bg_dif_path)

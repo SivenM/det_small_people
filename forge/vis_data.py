@@ -41,12 +41,12 @@ def main(in_dir_list:str, out_dir_list:str) -> None:
 
 if __name__ == '__main__':
     in_dir_list = [
-        '/home/max/ieos/small_obj/vid_pred/data/data_human',
-        '/home/max/ieos/small_obj/vid_pred/data/data_bg'
+        '/home/max/ieos/small_obj/vid_pred/data/human_data',
+        #'/home/max/ieos/small_obj/vid_pred/data/data_bg'
     ]
     out_dir_list = [
         '/home/max/ieos/small_obj/vid_pred/data/vis_human',
-        '/home/max/ieos/small_obj/vid_pred/data/vis_bg'
+        #'/home/max/ieos/small_obj/vid_pred/data/vis_bg'
     ]
 
     main(in_dir_list, out_dir_list)

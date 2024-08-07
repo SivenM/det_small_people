@@ -5,7 +5,7 @@ import utils
 import os
 
 
-OBJ_DIR = 'data/data_bg'
+OBJ_DIR = 'data/human_data'
 
 def main():
     path_list = list(map(lambda x: os.path.join(OBJ_DIR, x), os.listdir(OBJ_DIR)))

@@ -10,7 +10,7 @@ import pickle
 from data_perp import CropsLoader
 
 
-SAVE_DIR = "data"
+SAVE_DIR = "data/human_data"
 
 
 def get_dirs(path:str) -> str:
@@ -21,7 +21,7 @@ def get_dirs(path:str) -> str:
 
 def get_dataset(path:str) -> list:
     img_dir_path, ann_dir_path = get_dirs(path)
-    crops_loader = CropsLoader(ann_dir_path, img_dir_path)
+    crops_loader = CropsLoader(img_dir_path, ann_dir_path)
     data = crops_loader.load_data()
     return data
 
