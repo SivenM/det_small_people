@@ -37,7 +37,7 @@ def main(config:dict):
 
 if __name__ == '__main__':
     config = {
-        'name': 'exp2_obj_nblocks1_ep50',
+        'name': 'exp2.1_obj_nblocks1_ep50',
         'num_blocks': 1,
         'epoches': 50,
         'lr': 0.001,

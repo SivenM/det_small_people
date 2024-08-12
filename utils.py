@@ -69,3 +69,21 @@ def show_crop_sample(sample:ndarray|Tensor, label:ndarray|Tensor):
 def mkdir(path:str) -> None:
     if os.path.exists(path) == False:
         os.mkdir(path)    
+
+
+def show_sample(sample , target, rows=2, cols=5):
+    fig = plt.figure(figsize=(8,8))
+    if target == 1:
+        label = 'human'
+    else:
+        label = 'bg'
+    plt.title(label + f' | ')
+    plt.axis('off')
+
+    for i in range(len(sample)):
+        img  = sample[i]
+        fig.add_subplot(rows, cols, i+1)
+        plt.title(str(img.shape[:2]))
+        plt.axis('off')
+        plt.imshow(img, cmap='gray')
+    plt.show()

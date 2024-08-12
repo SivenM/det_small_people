@@ -7,3 +7,5 @@ data_human
 data_bg
 runs
 vis_pred.ipynb
+test_results
+test_cfg.json

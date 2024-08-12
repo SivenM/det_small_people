@@ -38,10 +38,10 @@ class ModelCheckpoint:
         if self.save_best_only:
             if (self.mode == 'min' and current < self.best) or (self.mode == 'max' and current > self.best):
                 self.best = current
-                torch.save(model.state_dict(), self.filepath)
+                torch.save(model.state_dict(), self.filepath.format(current))
                 print(f"Model improved at epoch {epoch+1}. Saving model to {self.filepath.format(current)}")
         else:
-            torch.save(model.state_dict(), self.filepath)
+            torch.save(model.state_dict(), self.filepath.format(current))
             print(f"Saving model at epoch {epoch+1} to {self.filepath.format(current)}")
 
 

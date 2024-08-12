@@ -4,7 +4,7 @@ from data_perp import BgGenerator
 from loguru import logger
 
 
-SAVE_DIR = "data_bg"
+SAVE_DIR = "data/data_bg"
 
 
 def get_dirs(path:str) -> str:

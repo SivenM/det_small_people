@@ -101,7 +101,7 @@ class BgGenerator(Loader):
             ann_name = str(self.ann_names[idx]) + '.json'
             path = os.path.join(self.ann_dir, ann_name)
             ann = self.load_ann(path)
-            if ann['num_objects'] > 0:
+            if ann['num_objects'] > 0 and int(ann['name']) < len(self.ann_names)-3:
                     return ann
 
     def get_coords(self, ann:dict) -> ndarray:
@@ -280,3 +280,23 @@ class CropDataset(Dataset):
         if self.pad:
             sample = self.pad.get_pad(sample)
         return sample, label    
+    
+
+class TestCropDataset(CropDataset):
+    
+    def __init__(self, json_path, transform=None, target_transforms=None, pad_size:tuple=(50,50)) -> None:
+        super().__init__(json_path, transform, target_transforms, pad_size)
+
+    def __getitem__(self, index:int):
+        data_path = self.path_list[index]
+        sample, label = self.from_pickle(data_path)
+        assert len(sample) == 10
+        sample = self.prepare_sample(sample)
+        sample_size = sample.shape[:2]
+        if self.transform:
+            sample = self.transform(sample)
+        if self.target_transforms:
+            label = self.target_transforms(label)
+        if self.pad:
+            sample = self.pad.get_pad(sample)
+        return sample, label, {'size':sample_size, 'path': data_path}    
