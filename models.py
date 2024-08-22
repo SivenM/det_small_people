@@ -27,7 +27,6 @@ class PatchEncoderConv2D(nn.Module):
     def forward(self, img:Tensor) -> Tensor:
         batch = img.shape[0]
         patches = self.conv_layer(img)
-        #logger.info(f'tensor shape{patches.shape}')
         patches = patches.reshape(batch, self.emb_dim, self.num_patches).swapaxes(1,2)
         return patches + self.pos_emb
 
@@ -140,13 +139,6 @@ class TransformerBlock(nn.Module):
         self.dropout1 = nn.Dropout(p=dropout_prob) 
         self.dropout2 = nn.Dropout(p=dropout_prob) 
         self.dropout3 = nn.Dropout(p=dropout_prob) 
-
-        #self.block = nn.Sequential([
-        #    nn.Dropout(p=dropout_prob),
-        #    nn.LayerNorm(emb_dim),
-        #    MultiHeadAttention(emb_dim, num_heads),
-        #    nn.Dropout(p=dropout_prob),
-        #])
 
     def forward(self, x):
         out_drop_1 = self.dropout1(x)
