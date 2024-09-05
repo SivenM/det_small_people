@@ -184,6 +184,15 @@ class BgGenerator(Loader):
         print(f'saved in {save_dir}')
 
 
+class SampleGenerator(Loader):
+    def __init__(self, img_dir:str, ann_dir:str, frame_rate:int=10, indent:int=0) -> None:
+        super().__init__(img_dir, ann_dir)
+        self.frame_rate = frame_rate
+        self.indent = indent
+
+    
+
+
 class Pad():
 
     def __init__(self, patch_size:tuple, ):
