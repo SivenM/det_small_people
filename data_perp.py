@@ -185,12 +185,64 @@ class BgGenerator(Loader):
 
 
 class SampleGenerator(Loader):
+    """
+    Генерирует сэмплы для обучения DETR
+    """
     def __init__(self, img_dir:str, ann_dir:str, frame_rate:int=10, indent:int=0) -> None:
+        """
+        img_dir: путь до директории изображений
+        ann_dir: путь до директории аннотации
+        frame_rate: кол-во кадров для одного сэмпла
+        indent: отступ влево привзятии кадров из  ieos датасета
+        от 0 до frame_rate 
+        """
         super().__init__(img_dir, ann_dir)
         self.frame_rate = frame_rate
         self.indent = indent
+        self.dataset_name = img_dir.split('/')[-2]
 
-    
+    def get_ann(self, idx:int):
+        ann_name = str(self.ann_names[idx]) + '.json'
+        path = os.path.join(self.ann_dir, ann_name)
+        ann = self.load_ann(path)
+        return ann
+
+    def load_imgs_seq(self, start_frame_name:int) -> ndarray:
+        imgs = [self.load_img(i) for i in range(start_frame_name, start_frame_name + self.frame_rate)]
+        imgs = np.array(imgs)
+        return np.squeeze(imgs)
+
+    def to_targets(self, ann:dict) -> list:
+        bboxes = []
+        if len(ann['objects']) > 0:
+            for obj in ann['objects']:
+                bboxes.append(obj['xywh_bboxes'])
+        return bboxes
+
+    def gen_sample(self, idx:int) -> tuple:
+        start_ann = self.get_ann(idx)
+        end_ann = self.get_ann(idx + 10)
+        imgs = self.load_imgs_seq(int(start_ann['name']))
+        targets = self.to_targets(end_ann)
+        return (imgs, targets)
+
+    def save(self, data:tuple, num:int, save_dir:str):
+        save_path = os.path.join(save_dir, self.dataset_name + '_' + str(num) + '_' + str(self.indent) + '.pickle')
+        utils.save_pickle(data, save_path)
+
+    def generate(self, save_dir:str=None):
+        num_imgs = len(self.ann_names)
+        num_iters = num_imgs // self.frame_rate
+        iterate = (x * self.frame_rate  - self.indent for x in range(num_iters))
+        for i, idx in tqdm(enumerate(iterate)):
+            if i == 0 and self.indent > 0:
+                continue
+            sample = self.gen_sample(idx)
+            if save_dir:
+                self.save(sample, i, save_dir)
+            else:
+                print(f'imgs shape: {sample[0].shape}')
+
 
 
 class Pad():
@@ -309,3 +361,9 @@ class TestCropDataset(CropDataset):
         if self.pad:
             sample = self.pad.get_pad(sample)
         return sample, label, {'size':sample_size, 'path': data_path}    
+    
+
+class DETRDataset(Dataset):
+
+    def __init__(self) -> None:
+        super().__init__()
