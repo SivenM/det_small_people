@@ -1,5 +1,6 @@
 tests
 .pytest_cache
+.vscode
 __pycache__
 datasets_paths.txt
 data
