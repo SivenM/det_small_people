@@ -6,6 +6,7 @@ import numpy as np
 from numpy import ndarray
 import matplotlib.pylab as plt
 from torchvision.io import read_image
+from torchvision.ops.boxes import box_area
 import torchvision.transforms.functional as F  
 import pickle
 
@@ -87,3 +88,46 @@ def show_sample(sample , target, rows=2, cols=5):
         plt.axis('off')
         plt.imshow(img, cmap='gray')
     plt.show()
+
+
+##############################33
+# bbox utils
+
+
+def to_corners(bboxes:Tensor):
+    x, y, w, h = bboxes.unbind(-1)
+    b_corners = [(x - 0.5 * w), (y - 0.5 * h),
+         (x - 0.5 * w), (y - 0.5 * h)]
+    return torch.stack(b_corners, dim=-1)
+
+
+def to_xywh(bboxes:Tensor):
+    x0, y0, x1, y1 = bboxes.unbind(-1)
+    b_xywh = [(x0 + x1) / 2, (y0 + y1) / 2,
+              (x1 - x0), (y1 - y0)]
+    return torch.stack(b_xywh, dim=-1)
+
+
+def get_iou(bboxes1:Tensor, bboxes2:Tensor):
+    area1 = box_area(bboxes1)
+    area2 = box_area(bboxes2)
+
+    lt = torch.max(bboxes1[:, None, :2], bboxes2[:, :2])
+    rb = torch.max(bboxes1[:, None, 2:], bboxes2[:, 2:])
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:,:,0] * wh[:,:,1]
+
+    union = area1[:, None] + area2 - inter
+    iou = inter / union
+    return iou, union
+
+
+def generalized_iou(bboxes1:Tensor, bboxes2:Tensor):
+    iou, union = get_iou(bboxes1, bboxes2)
+
+    lt = torch.max(bboxes1[:, None, :2], bboxes2[:, :2])
+    rb = torch.max(bboxes1[:, None, 2:], bboxes2[:, 2:])
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:,:,0] * wh[:,:,1]
+
+    return iou - (inter - union) / inter

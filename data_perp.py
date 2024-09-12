@@ -365,5 +365,36 @@ class TestCropDataset(CropDataset):
 
 class DETRDataset(Dataset):
 
-    def __init__(self) -> None:
+    def __init__(self, dir_path:str, norm=True, transform=None, target_transforms=None) -> None:
         super().__init__()
+        self.dir_path = dir_path
+        self.norm = norm
+        self.samples = os.listdir(dir_path)
+        self.transform = transform
+        self.target_transforms = target_transforms
+
+    def __len__(self):
+        return len(self.samples)
+    
+    def _from_pickle(self, data_path:str):
+        with open(data_path, "rb") as file:
+            data = pickle.load(file)
+        return data
+
+    def _create_targets(self, bboxes:list, img_size:tuple) -> Tensor:
+        t_bboxes = torch.tensor(bboxes)
+        if self.norm:
+            t_bboxes = self.normalize(t_bboxes, img_size)
+        t_labels = torch.ones(len(bboxes))
+        if self.target_transforms:
+            t_bboxes = self.target_transforms(t_bboxes)
+        return {'bbox': t_bboxes, 'labels': t_labels}
+
+    def __getitem__(self, index:int):
+        sample_name = self.samples[index]
+        sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        targets = self._create_targets(bboxes, sample.shape[1:])
+        if self.transform:
+            sample = self.transform(sample)
+        return sample, targets
+    

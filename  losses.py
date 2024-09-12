@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from scipy.optimize import linear_sum_assignment
-from utils import generalized_iou, convert_to_corners
+from utils import generalized_iou, to_corners
 
 
 class HungarianMatcher(nn.Module):
@@ -26,7 +26,7 @@ class HungarianMatcher(nn.Module):
 
         cost_class = -out_conf[:, target_labels]
         cost_bbox = torch.cdist(out_bbox, target_bbox, p=1)
-        cost_giou = -generalized_iou(convert_to_corners(out_bbox), convert_to_corners(target_bbox))
+        cost_giou = -generalized_iou(to_corners(out_bbox), to_corners(target_bbox))
 
         cost = self.cost_bbox*cost_bbox + self.cost_class*cost_class + self.cost_giou*cost_giou
         cost = cost.view(batch_size, num_queries, -1)
@@ -81,8 +81,8 @@ class DetrLoss(nn.Module):
         target_bboxes = torch.cat([t['bbox'][i] for t, (_, i) in zip(targets, indices)], dim=0)
         loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='none')
         loss_giou = 1 - torch.diag(generalized_iou(
-            convert_to_corners(bboxes),
-            convert_to_corners(target_bboxes),
+            to_corners(bboxes),
+            to_corners(target_bboxes),
         ))
         loss_l1 = loss_l1.sum() / num_bboxes
         loss_giou = loss_giou.sum() / num_bboxes
