@@ -113,7 +113,7 @@ def get_iou(bboxes1:Tensor, bboxes2:Tensor):
     area2 = box_area(bboxes2)
 
     lt = torch.max(bboxes1[:, None, :2], bboxes2[:, :2])
-    rb = torch.max(bboxes1[:, None, 2:], bboxes2[:, 2:])
+    rb = torch.min(bboxes1[:, None, 2:], bboxes2[:, 2:])
     wh = (rb - lt).clamp(min=0)
     inter = wh[:,:,0] * wh[:,:,1]
 
@@ -125,7 +125,7 @@ def get_iou(bboxes1:Tensor, bboxes2:Tensor):
 def generalized_iou(bboxes1:Tensor, bboxes2:Tensor):
     iou, union = get_iou(bboxes1, bboxes2)
 
-    lt = torch.max(bboxes1[:, None, :2], bboxes2[:, :2])
+    lt = torch.min(bboxes1[:, None, :2], bboxes2[:, :2])
     rb = torch.max(bboxes1[:, None, 2:], bboxes2[:, 2:])
     wh = (rb - lt).clamp(min=0)
     inter = wh[:,:,0] * wh[:,:,1]

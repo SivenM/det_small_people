@@ -80,10 +80,14 @@ class SelfAttention(nn.Module):
         self.key = nn.Linear(emb_dim, key_dim)
         self.value = nn.Linear(emb_dim, key_dim)
 
-    def forward(self, x):
+    def forward(self, x, memory=None):
         q = self.query(x)
-        k = self.key(x)
-        v = self.value(x)
+        if memory:
+            k = self.key(memory)
+            v = self.value(memory)
+        else:
+            k = self.key(x)
+            v = self.value(x)
 
         dot_prod = torch.matmul(q, torch.transpose(k, -2, -1))
         scaled_dot_prod = dot_prod / np.sqrt(self.key_dim)
@@ -105,8 +109,11 @@ class MultiHeadAttention(nn.Module):
         self.multi_head_attention = nn.ModuleList(self.attention_list)
         self.W = nn.Parameter(torch.randn(num_heads * self.key_dim, emb_dim))
 
-    def forward(self, x):
-        attention_scores = [attention(x) for attention in self.multi_head_attention]
+    def forward(self, x, memory=None):
+        if memory:
+            attention_scores = [attention(x, memory) for attention in self.multi_head_attention]
+        else:
+            attention_scores = [attention(x) for attention in self.multi_head_attention]
         Z = torch.cat(attention_scores, -1)
         attention_score = torch.matmul(Z, self.W)
         return attention_score
@@ -150,7 +157,79 @@ class TransformerBlock(nn.Module):
         out_mlp = self.MLP(out_norm_2)
         out_drop_3 = self.dropout3(out_mlp)
         return add + out_drop_3
+
+
+class TransformerEncoder(nn.Module):
+
+    def __init__(self, num_blocks:int, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.tfs = nn.Sequential(
+            *[TransformerBlock(emb_dim, num_heads, hidden_dim, dropout_prob) for _ in range(num_blocks)]
+        )
+
+    def forward(self, inputs:Tensor):
+        x = inputs
+        for tf_block in self.tfs:
+            x = tf_block(x)
+        return x
+
+
+class TransformerDecoder(nn.Module):
+
+    def __init__(self, num_blocks:int, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.tfs = nn.Sequential(
+            *[TransformerBlock(emb_dim, num_heads, hidden_dim, dropout_prob) for _ in range(num_blocks)]
+        )
+        self.ln1 = nn.LayerNorm(emb_dim)
+        self.ln2 = nn.LayerNorm(emb_dim)
+        self.ln3 = nn.LayerNorm(emb_dim)
+        self.self_attn = SelfAttention(emb_dim)
+        self.dropout1 = nn.Dropout(p=dropout_prob) 
+        self.dropout2 = nn.Dropout(p=dropout_prob) 
+        self.dropout3 = nn.Dropout(p=dropout_prob) 
+        self.MSA = MultiHeadAttention(emb_dim, num_heads)
+        self.mlp = MLP(emb_dim, hidden_dim)
+
+    def forward(self, queries:Tensor, memory:Tensor):
+        q = self.self_attn(queries) 
+        queries = queries + self.dropout1(q)
+        queries = self.ln1(queries)
+
+        features = self.MSA(queries, memory)
+        features = self.dropout2(features) + queries
+        features1 = self.ln2(features)
+        features = self.mlp(features1)
+        features = self.dropout3(features) + features1
+        features = self.ln3(features)
+
+        for tf in self.tfs:
+            features = tf(features)
+
+        return features
     
+
+class Transformer(nn.Module):
+    
+    def __init__(
+            self, 
+            num_encoder_blocks:int=6, 
+            num_decoder_blocks:int=6, 
+            num_queries:int=100,
+            num_cls=1, 
+            ) -> None:
+        super().__init__()
+
+        self.encoder = TransformerEncoder(num_encoder_blocks)
+        self.decoder = TransformerDecoder(num_decoder_blocks)
+
+
+
+        self.encoder = nn.Sequential(
+            *[TransformerBlock() for _ in range(num_encoder_blocks)]
+        )
+        self.decoder = nn.Sequential()
+
 
 class VisTransformer(nn.Module):
     def __init__(self, num_blocks:int, encoder_type:str=None, num_cls:int=1) -> None:

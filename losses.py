@@ -21,18 +21,35 @@ class HungarianMatcher(nn.Module):
 
         out_conf = preds['logits'].flatten(0, 1).softmax(-1)
         out_bbox = preds['bbox'].flatten(0, 1)
-        target_labels = targets['labels']
-        target_bbox = targets['bbox']
+
+        target_labels = torch.cat([v["labels"] for v in targets])
+        target_bbox = torch.cat([v["bbox"] for v in targets])
+
+        #print(f'pred conf: {out_conf.dtype}')
+        #print(f'pred bbox: {out_bbox.dtype}')
+        print(f'pred bbox: {out_bbox.shape}\n')
+        #print(f'target labels: {target_labels.dtype}')
+        #print(f'target bbox: {target_bbox.dtype}')
+        print(f'target bbox: {target_bbox.shape}')
 
         cost_class = -out_conf[:, target_labels]
         cost_bbox = torch.cdist(out_bbox, target_bbox, p=1)
         cost_giou = -generalized_iou(to_corners(out_bbox), to_corners(target_bbox))
+        print(f'cost iou: {cost_giou}')
 
         cost = self.cost_bbox*cost_bbox + self.cost_class*cost_class + self.cost_giou*cost_giou
         cost = cost.view(batch_size, num_queries, -1)
 
-        sizes = [len(bbox) for bbox in preds['bbox']]
+        #print(f'cost iou: {cost_giou.dtype}')
+        #print(f'cost: {cost.dtype}')
+        #print(f'cost: {cost}')
+
+        sizes = [len(t['bbox']) for t in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(cost.split(sizes, -1))]
+        #indices = []
+        #for i, c in enumerate(cost.split(sizes, -1)):
+        #    print(c[i])
+        #    print(c[i].dtype)
         indices_torch = [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
         return indices_torch
     
@@ -51,7 +68,7 @@ class DetrLoss(nn.Module):
         self.cls_scale = cls_scale
         self.bbox_scale = bbox_scale
         self.giou_scale = giou_scale
-        ce_weights = torch.ones(num_classes + 1)
+        ce_weights = torch.ones(2)
         ce_weights[-1] = self.cls_scale
         self.register_buffer('ce_weights', ce_weights)
 
@@ -67,32 +84,39 @@ class DetrLoss(nn.Module):
 
     def loss_cls(self, preds, targets, indices, num_bboxes):
         idx = self._get_pred_permutation_idx(indices)
-        logits = preds['logits'][idx]
+        logits = preds['logits']
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(logits.shape[:2], self.num_classes,
-                                    dtype=torch.int64, device=logits.device)
+                                    dtype=torch.long, device=logits.device)
         target_classes[idx] = target_classes_o
-        ce_loss = torch.nn.functional.cross_entropy(logits.transpose(1, 2), target_classes, self.ce_weight)
+        target_classes = target_classes -1
+        ce_loss = torch.nn.functional.cross_entropy(logits.transpose(1, 2), target_classes, self.ce_weights)
         return ce_loss
     
     def loss_bbox(self, preds, targets, indices, num_bboxes):
         idx = self._get_pred_permutation_idx(indices)
         bboxes = preds['bbox'][idx]
         target_bboxes = torch.cat([t['bbox'][i] for t, (_, i) in zip(targets, indices)], dim=0)
+        print(f'pred shape: {bboxes.shape}')
+        print(f'target shape: {target_bboxes.shape}')
+
         loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='none')
         loss_giou = 1 - torch.diag(generalized_iou(
             to_corners(bboxes),
             to_corners(target_bboxes),
         ))
+        print(f'giou loss: {loss_giou}')
         loss_l1 = loss_l1.sum() / num_bboxes
         loss_giou = loss_giou.sum() / num_bboxes
         return loss_l1 * self.bbox_scale + loss_giou * self.giou_scale
     
     def forward(self, preds, targets):
         indices = self.matcher(preds, targets)
-        num_bboxes = sum(len(t) for t in targets['labels'])
+        num_bboxes = sum(len(t['labels']) for t in targets)
         c_loss = self.loss_cls(preds, targets, indices, num_bboxes)
         b_loss = self.loss_bbox(preds, targets, indices, num_bboxes)
+        print(f'cls loss: {c_loss}')
+        print(f'bbox loss: {b_loss}')
 
         losses = c_loss + b_loss
         return losses

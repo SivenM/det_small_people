@@ -6,6 +6,7 @@ import utils
 import cv2
 import pickle
 from torch.utils.data import Dataset
+from torchvision.datasets import CocoDetection
 import torch.nn.functional as F
 import torch
 from torch import Tensor
@@ -394,6 +395,7 @@ class DETRDataset(Dataset):
         sample_name = self.samples[index]
         sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
         targets = self._create_targets(bboxes, sample.shape[1:])
+        print(type(bboxes))
         if self.transform:
             sample = self.transform(sample)
         return sample, targets
