@@ -46,7 +46,7 @@ class ModelCheckpoint:
 
 
 class TensorBoard:
-    def __init__(self, log_dir:str, metrics_names:list) -> None:
+    def __init__(self, log_dir:str, metrics_names:list=['t_loss', 'v_loss']) -> None:
         self.writer=SummaryWriter(log_dir)
         self.metrics_names = metrics_names
 

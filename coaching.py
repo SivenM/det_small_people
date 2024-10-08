@@ -99,6 +99,7 @@ class Coach:
                     #'train_acc': t_acc / (batch + 1)
                 }
             )
+
         t_loss = t_loss / len(data)
         t_acc = t_acc / len(data)
         return t_loss, t_acc
@@ -150,7 +151,7 @@ class Coach:
             self.checkpoint.save(self.model, epoch, v_loss)
 
         if self.tboard:
-            self.tboard.add([t_loss, v_loss, t_acc, v_acc], epoch)
+            self.tboard.add([t_loss, v_loss], epoch)
 
     def plot_history(self):
         pass
@@ -168,7 +169,9 @@ class Coach:
                 v_loss, v_acc = 0., 0.
             self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc)
             self.update_history(t_loss, v_loss, t_acc, v_acc)
-        
+            #if self.tboard:
+            #    self.tboard.add_scalar('Loss/train', t_loss, epoch)
+            #    self.tboard.add_scalar('Loss/train', v_loss, epoch)
         torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
         return self.history
 

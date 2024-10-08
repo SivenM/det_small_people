@@ -37,7 +37,7 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8):
 
 
 def train(cfg:dict):
-    coach = Coach(cfg['name'], cfg['save_dir'], debug=cfg['debug'])
+    coach = Coach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
     train_model = DETR(
         cfg['num_encoder_blocks'],
         cfg['num_decoder_blocks'],
