@@ -184,7 +184,7 @@ class TransformerDecoder(nn.Module):
         self.ln1 = nn.LayerNorm(emb_dim)
         self.ln2 = nn.LayerNorm(emb_dim)
         self.ln3 = nn.LayerNorm(emb_dim)
-        self.self_attn = SelfAttention(emb_dim)
+        self.self_attn = MultiHeadAttention(emb_dim, num_heads)
         self.dropout1 = nn.Dropout(p=dropout_prob) 
         self.dropout2 = nn.Dropout(p=dropout_prob) 
         self.dropout3 = nn.Dropout(p=dropout_prob) 
@@ -242,6 +242,13 @@ class DETR(nn.Module):
             'logits': self.linear_class(features),
             'bbox': self.linear_bbox(features).sigmoid()
         }
+
+
+class Sogmoid(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+    def forward(self, x):
+        return 1/(1+torch.exp(-x))
 
 
 class VisTransformer(nn.Module):

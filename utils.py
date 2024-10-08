@@ -97,7 +97,7 @@ def show_sample(sample , target, rows=2, cols=5):
 def to_corners(bboxes:Tensor):
     x, y, w, h = bboxes.unbind(-1)
     b_corners = [(x - 0.5 * w), (y - 0.5 * h),
-         (x - 0.5 * w), (y - 0.5 * h)]
+         (x + 0.5 * w), (y + 0.5 * h)]
     return torch.stack(b_corners, dim=-1)
 
 

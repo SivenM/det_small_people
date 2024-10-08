@@ -382,11 +382,22 @@ class DETRDataset(Dataset):
             data = pickle.load(file)
         return data
 
+    def normalize(self, t_bboxes:Tensor, img_size:tuple):
+        """
+        Нормирование координат рамок от 0 до 1
+        """
+        
+        t_bboxes[:, 0] /= img_size[1]
+        t_bboxes[:, 1] /= img_size[0]
+        t_bboxes[:, 2] /= img_size[1]
+        t_bboxes[:, 3] /= img_size[0]
+        return t_bboxes
+    
     def _create_targets(self, bboxes:list, img_size:tuple) -> Tensor:
-        t_bboxes = torch.tensor(bboxes)
+        t_bboxes = torch.tensor(bboxes, dtype=torch.float32)
         if self.norm:
             t_bboxes = self.normalize(t_bboxes, img_size)
-        t_labels = torch.ones(len(bboxes))
+        t_labels = torch.ones(len(bboxes), dtype=torch.long)
         if self.target_transforms:
             t_bboxes = self.target_transforms(t_bboxes)
         return {'bbox': t_bboxes, 'labels': t_labels}
@@ -395,8 +406,7 @@ class DETRDataset(Dataset):
         sample_name = self.samples[index]
         sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
         targets = self._create_targets(bboxes, sample.shape[1:])
-        print(type(bboxes))
         if self.transform:
-            sample = self.transform(sample)
-        return sample, targets
+            sample = self.transform(np.array(sample))
+        return sample.squeeze(), targets
     

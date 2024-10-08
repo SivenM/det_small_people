@@ -3,21 +3,35 @@ from tqdm.auto import tqdm
 from typing import Tuple
 import torch
 from torch import nn
-from torcheval.metrics.functional import binary_accuracy
+from torcheval.metrics.functional import binary_accuracy, multiclass_accuracy
 from callbacks import CSVLogger, ModelCheckpoint, TensorBoard
 import utils
 from loguru import logger
 
 BASE_DIR = "runs"
 
+
 class Coach:
 
-    def __init__(self, name:str, logger:bool=True, checkpoint:bool=True, tboard:bool=False, device='cuda') -> None:
-        utils.mkdir(f'{BASE_DIR}/{name}')
-        self.logs_dir = f'{BASE_DIR}/{name}/logs'
-        self.save_dir = f'{BASE_DIR}/{name}/models/'
-        self.device = device
+    def __init__(self, name:str, save_dir:str=None, metric:str='multi_acc', logger:bool=True, checkpoint:bool=True, tboard:bool=False, device='cuda', debug:bool=False) -> None:
+        if save_dir:
+            utils.mkdir(save_dir)
+            utils.mkdir(f'{save_dir}/{name}')
+            self.logs_dir = f'{save_dir}/{name}/logs'
+            self.save_dir = f'{save_dir}/{name}/models/'
+        else:
+            utils.mkdir(f'{BASE_DIR}/{name}')
+            self.logs_dir = f'{BASE_DIR}/{name}/logs'
+            self.save_dir = f'{BASE_DIR}/{name}/models/'
+            self.device = device
         
+        if metric == 'multi_acc':
+            self.metric = multiclass_accuracy
+        elif metric == ' bin_acc':
+            self.metric = binary_accuracy
+        else:
+            raise 'Wrong metric'
+            
         if logger:
             self.logger = CSVLogger(self.logs_dir)
         else:
@@ -38,6 +52,8 @@ class Coach:
             't_acc': [],
             'v_acc': []
         }
+        self.device = device
+        self.debug = debug
 
     def __create_dirs(self, name):
         exp_dir = os.path.join(BASE_DIR, name)
@@ -46,7 +62,12 @@ class Coach:
         for path in [exp_dir, logs_dir, ]:
             utils.mkdir(os.path.join(BASE_DIR, name))
 
-        
+    def _to_cuda(self, targets:list) -> list:
+        for target in targets:
+            target['bbox'] = target['bbox'].to('cuda')
+            target['labels'] = target['labels'].to('cuda')
+        return targets
+    
     def train_step(self, epoch, data) -> Tuple[float, float]:
         self.model.train()
         t_loss = 0.
@@ -60,18 +81,22 @@ class Coach:
         )
 
         for batch, (sample, label) in progress_bar:
+            if torch.cat([v["bbox"] for v in label]).shape[0] == 0:
+                continue
             self.optimizer.zero_grad()
-            sample, label = sample.to(self.device), label.squeeze().to(self.device)
+            sample, label= sample.to(self.device), self._to_cuda(label)
             pred = self.model(sample)
             loss = self.loss_fn(pred, label)
             t_loss += loss.item()
-            t_acc += binary_accuracy(pred, label).item()
+            #if self.debug:
+            #print(f'loss: {t_loss}')
+            #t_acc += self.metric(pred, label['labels']).item()
             loss.backward()
             self.optimizer.step()
             progress_bar.set_postfix(
                 {
                     'train_loss': t_loss / (batch + 1),
-                    'train_acc': t_acc / (batch + 1)
+                    #'train_acc': t_acc / (batch + 1)
                 }
             )
         t_loss = t_loss / len(data)
@@ -90,15 +115,15 @@ class Coach:
 
         with torch.no_grad():
             for batch, (sample, label) in progress_bar:
-                sample, label = sample.to(self.device), label.squeeze().to(self.device)
+                sample, label= sample.to(self.device), self._to_cuda(label)
                 pred = self.model(sample)
                 loss = self.loss_fn(pred, label)
                 v_loss += loss.item()
-                v_acc += binary_accuracy(pred, label).item()
+                #v_acc += self.metric(pred, label).item()
                 progress_bar.set_postfix(
                     {
                         'val_loss': v_loss / (batch + 1),
-                        'val_acc': v_acc / (batch + 1)
+                        #'val_acc': v_acc / (batch + 1)
                     }
                 )
         v_loss = v_loss / len(data)
