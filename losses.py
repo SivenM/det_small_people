@@ -115,7 +115,7 @@ class DetrLoss(nn.Module):
         #print(f'pred shape: {bboxes.shape}')
         #print(f'target shape: {target_bboxes.shape}')
 
-        loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='none')
+        loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='mean')
         loss_giou = 1 - torch.diag(generalized_iou(
             to_corners(bboxes),
             to_corners(target_bboxes),
@@ -126,6 +126,9 @@ class DetrLoss(nn.Module):
 
         loss_l1 = loss_l1.sum() / num_bboxes
         loss_giou = loss_giou.sum() / num_bboxes
+        print(f'bbox loss: {loss_l1}')
+        print(f'bbox loss iou: {loss_giou}')
+
         return loss_l1 * self.bbox_scale + loss_giou * self.giou_scale
     
     def forward(self, preds, targets):
@@ -133,11 +136,38 @@ class DetrLoss(nn.Module):
         num_bboxes = sum(len(t['labels']) for t in targets)
         c_loss = self.loss_cls(preds, targets, indices, num_bboxes)
         b_loss = self.loss_bbox(preds, targets, indices, num_bboxes)
-        #print(f'cls loss: {c_loss}')
-        #print(f'bbox loss: {b_loss}')
+        print(f'cls loss: {c_loss}')
+        print(f'bbox loss: {b_loss}')
 
         losses = c_loss + b_loss
         return losses
 
 
+class DetrLocLoss(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
 
+    def _get_pred_permutation_idx(self, indices):
+        batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+        pred_idx = torch.cat([src for (src, _) in indices])
+        return batch_idx, pred_idx
+    
+    @torch.no_grad()
+    def match(self, preds:torch.Tensor, targets:list):
+        bs, num_q = preds.shape[:2]
+        pred = preds.flatten(0, 1)
+        gt = torch.cat([bbox for bbox in targets])
+        cost = torch.cdist(pred, gt, p=1)
+        C = cost.view(bs, num_q, -1).cpu()
+        sizes = [len(bbox) for bbox in targets]
+        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+        indices_torch = [(torch.as_tensor(i, dtype=torch.int64, device='cuda'), torch.as_tensor(j, dtype=torch.int64, device='cuda')) for i, j in indices]
+        return indices_torch
+    
+    def forward(self, preds:torch.Tensor, targets:list):
+        indices = self.match(preds, targets)
+        idx = self._get_pred_permutation_idx(indices)
+        pred_bboxes = preds[idx]
+        target_bboxes = torch.cat([t[i] for t, (_, i) in zip(targets, indices)], dim=0)
+        loss_l1 = torch.nn.functional.l1_loss(pred_bboxes, target_bboxes, reduction='mean') 
+        return loss_l1

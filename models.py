@@ -244,6 +244,46 @@ class DETR(nn.Module):
         }
 
 
+class DetrLoc(nn.Module):
+    """
+    Предсказывает рамки людей на последнем фрейме (только локализация)
+    """
+    def __init__(
+            self, 
+            num_encoder_blocks:int=6, 
+            num_decoder_blocks:int=6, 
+            num_queries:int=25,
+            num_cls=1, 
+            emb_dim=256,
+            img_size=(480, 640),
+            num_imgs = 10,
+            patch_size=40,
+            loc_emb:list=[256, 128, 64]
+            ) -> None:
+        super().__init__()
+
+        num_patches = (img_size[0] // patch_size) * (img_size[1] // patch_size)
+        self.img_encoder= PatchEncoderConv2D(num_patches, emb_dim, patch_size, num_imgs)
+        self.encoder = TransformerEncoder(num_encoder_blocks)
+        self.decoder = TransformerDecoder(num_decoder_blocks)
+
+        self.query_pos = nn.Parameter(torch.randn(num_queries, emb_dim))
+
+        #loc_layers = []
+        #for le in loc_emb:
+        #    loc_layers.append(nn.Linear(emb_dim, le))
+        #    emb_dim = le
+        #self.loc_layers = nn.Sequential(*loc_layers)
+
+        self.out_head = nn.Linear(emb_dim, 4)
+
+    def forward(self, x:Tensor) -> Tensor:
+        features = self.img_encoder(x)
+        features = self.encoder(features)
+        features = self.decoder(self.query_pos, features)
+        return self.out_head(features) 
+
+
 class Sogmoid(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

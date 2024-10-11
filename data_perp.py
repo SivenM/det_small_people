@@ -385,12 +385,12 @@ class DETRDataset(Dataset):
     def normalize(self, t_bboxes:Tensor, img_size:tuple):
         """
         Нормирование координат рамок от 0 до 1
-        """
-        
-        t_bboxes[:, 0] /= img_size[1]
-        t_bboxes[:, 1] /= img_size[0]
-        t_bboxes[:, 2] /= img_size[1]
-        t_bboxes[:, 3] /= img_size[0]
+        """   
+        if t_bboxes.shape[0] > 0:
+            t_bboxes[:, 0] /= img_size[1]
+            t_bboxes[:, 1] /= img_size[0]
+            t_bboxes[:, 2] /= img_size[1]
+            t_bboxes[:, 3] /= img_size[0]
         return t_bboxes
     
     def _create_targets(self, bboxes:list, img_size:tuple) -> Tensor:
@@ -410,3 +410,21 @@ class DETRDataset(Dataset):
             sample = self.transform(np.array(sample))
         return sample.squeeze(), targets
     
+
+class DetrLocDataset(DETRDataset):
+
+    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None) -> None:
+        super().__init__(dir_path, norm, transform, target_transforms)
+        self.norm = norm
+
+    def __getitem__(self, index: int):
+        sample_name = self.samples[index]
+        sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        if self.norm:
+            bboxes = self.normalize(torch.tensor(bboxes, dtype=torch.float32), sample.shape[1:])
+        else:
+            bboxes = torch.tensor(bboxes, dtype=torch.float32)
+        if self.transform:
+            sample = self.transform(np.array(sample))
+        return sample, bboxes
+

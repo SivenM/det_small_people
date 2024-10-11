@@ -1,8 +1,8 @@
 import os
 import yaml
-from data_perp import DETRDataset
-from models import DETR
-from coaching import Coach
+from data_perp import DETRDataset, DetrLocDataset
+from models import DETR, DetrLoc
+from coaching import Coach, DetrLocCoach
 import losses
 import utils
 
@@ -18,7 +18,7 @@ def collate_fn(batch):
     return samples, targets
 
 
-def create_dataloader(path:str, mean:list, std:list, batch_size=8):
+def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:str='detr'):
     sample_transforms = v2.Compose([
         #transforms.ToTensor(),
         v2.Lambda(lambda x: torch.tensor(x)),
@@ -26,32 +26,55 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8):
         v2.Normalize(mean=mean,
         std=std )
         ])
-    
-    dataset = DETRDataset(
-        path, 
-        norm=False, 
-        transform=sample_transforms
-        )
+    if model_type == 'detr':
+        dataset = DETRDataset(
+            path, 
+            norm=False, 
+            transform=sample_transforms
+            )
+    elif model_type == 'detr_loc':
+        dataset = DetrLocDataset(
+            path, 
+            norm=True, 
+            transform=sample_transforms
+            )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
     return dataloader
 
 
 def train(cfg:dict):
-    coach = Coach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
-    train_model = DETR(
-        cfg['num_encoder_blocks'],
-        cfg['num_decoder_blocks'],
-        cfg['num_queries'],
-        cfg['num_cls'],
-        cfg['emb_dim'],
-        cfg['img_size'],
-        cfg['num_imgs'],
-        cfg['patch_size']
-    )
-    train_dataloader = create_dataloader(cfg['train_dataset_path'], cfg['mean'], cfg['std'], cfg['train_batch_size'])
-    val_dataloader = create_dataloader(cfg['val_dataset_path'], cfg['mean'], cfg['std'], cfg['val_batch_size'])
-    matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
-    loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
+    if cfg['model_type'] == 'detr':
+        coach = Coach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
+        train_model = DETR(
+            cfg['num_encoder_blocks'],
+            cfg['num_decoder_blocks'],
+            cfg['num_queries'],
+            cfg['num_cls'],
+            cfg['emb_dim'],
+            cfg['img_size'],
+            cfg['num_imgs'],
+            cfg['patch_size']
+        )
+        matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
+        loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
+    elif cfg['model_type'] == 'detr_loc':
+        coach = DetrLocCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
+        train_model = DetrLoc(
+            cfg['num_encoder_blocks'],
+            cfg['num_decoder_blocks'],
+            cfg['num_queries'],
+            cfg['num_cls'],
+            cfg['emb_dim'],
+            cfg['img_size'],
+            cfg['num_imgs'],
+            cfg['patch_size']
+        )
+        loss_fn = losses.DetrLocLoss()
+    else:
+        raise "Wrong model type. Only detr or detr_loc"
+    
+    train_dataloader = create_dataloader(cfg['train_dataset_path'], cfg['mean'], cfg['std'], cfg['train_batch_size'], cfg['model_type'])
+    val_dataloader = create_dataloader(cfg['val_dataset_path'], cfg['mean'], cfg['std'], cfg['val_batch_size'], cfg['model_type'])
     coach.fit(
         cfg['epoches'],
         train_model,

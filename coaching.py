@@ -43,7 +43,7 @@ class Coach:
             self.checkpoint = None
 
         if tboard:
-            self.tboard = TensorBoard(f'{BASE_DIR}/{name}/tb')
+            self.tboard = TensorBoard(f'{save_dir}/{name}/tb')
         else:
             self.tboard = None
         self.history = {
@@ -70,6 +70,7 @@ class Coach:
     
     def train_step(self, epoch, data) -> Tuple[float, float]:
         self.model.train()
+        self.loss_fn.train()
         t_loss = 0.
         t_acc = 0.
 
@@ -106,6 +107,7 @@ class Coach:
 
     def val_step(self, epoch, data) -> Tuple[float, float]:
         self.model.eval()
+        self.loss_fn.eval()
         v_loss, v_acc = 0, 0
         progress_bar = tqdm(
             enumerate(data),
@@ -116,6 +118,8 @@ class Coach:
 
         with torch.no_grad():
             for batch, (sample, label) in progress_bar:
+                if torch.cat([v["bbox"] for v in label]).shape[0] == 0:
+                    continue
                 sample, label= sample.to(self.device), self._to_cuda(label)
                 pred = self.model(sample)
                 loss = self.loss_fn(pred, label)
@@ -174,6 +178,72 @@ class Coach:
             #    self.tboard.add_scalar('Loss/train', v_loss, epoch)
         torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
         return self.history
+
+
+class DetrLocCoach(Coach):
+    def __init__(self, name: str, save_dir: str = None, metric: str = 'multi_acc', logger: bool = True, checkpoint: bool = True, tboard: bool = False, device='cuda', debug: bool = False) -> None:
+        super().__init__(name, save_dir, metric, logger, checkpoint, tboard, device, debug)
+
+    def _to_cuda(self, targets:list) -> list:
+        out = []
+        for target in targets:
+            out.append(target.to('cuda'))
+        return out
+
+    def train_step(self, epoch, data) -> Tuple[float, float]:
+        self.model.train()
+        self.loss_fn.train()
+        t_loss, t_acc = 0., 0.
+
+        progress_bar = tqdm(
+            enumerate(data),
+            desc=f"train epoch {epoch}",
+            total=(len(data)),
+            disable=False
+        )
+
+        for batch, (sample, label) in progress_bar:
+            if torch.cat([v for v in label]).shape[0] == 0:
+                continue
+            self.optimizer.zero_grad()
+            sample, label = sample.to(self.device), self._to_cuda(label)
+            pred = self.model(sample)
+            loss = self.loss_fn(pred, label)
+            t_loss += loss.item()
+            loss.backward()
+            self.optimizer.step()
+            progress_bar.set_postfix(
+                {
+                    'train_loss': t_loss
+                }
+            )
+        return t_loss, t_acc
+    
+    def val_step(self, epoch, data) -> Tuple[float, float]:
+        self.model.eval()
+        self.loss_fn.eval()
+        v_loss, v_acc = 0, 0
+        progress_bar = tqdm(
+            enumerate(data),
+            desc=f"val epoch {epoch}",
+            total=(len(data)),
+            disable=False
+        )
+
+        with torch.no_grad():
+            for batch, (sample, label) in progress_bar:
+                if torch.cat([v for v in label]).shape[0]  == 0:
+                    continue
+                sample, label= sample.to(self.device), self._to_cuda(label)
+                pred = self.model(sample)
+                loss = self.loss_fn(pred, label)
+                v_loss += loss.item()
+                progress_bar.set_postfix(
+                    {
+                        'val_loss': v_loss,
+                    }
+                )
+        return v_loss, v_acc
 
 
 class ObjCoach:
