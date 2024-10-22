@@ -222,14 +222,22 @@ class SampleGenerator(Loader):
 
     def gen_sample(self, idx:int) -> tuple:
         start_ann = self.get_ann(idx)
-        end_ann = self.get_ann(idx + 10)
-        imgs = self.load_imgs_seq(int(start_ann['name']))
-        targets = self.to_targets(end_ann)
+        if self.frame_rate > 1:
+            end_ann = self.get_ann(idx + self.frame_rate)
+            imgs = self.load_imgs_seq(int(start_ann['name']))
+            targets = self.to_targets(end_ann)
+        else:
+            imgs = self.load_img(int(start_ann['name']))
+            targets = self.to_targets(start_ann)
         return (imgs, targets)
+        
 
     def save(self, data:tuple, num:int, save_dir:str):
         save_path = os.path.join(save_dir, self.dataset_name + '_' + str(num) + '_' + str(self.indent) + '.pickle')
         utils.save_pickle(data, save_path)
+
+    def _gen(self, iterible):
+        pass
 
     def generate(self, save_dir:str=None):
         num_imgs = len(self.ann_names)
@@ -244,6 +252,17 @@ class SampleGenerator(Loader):
             else:
                 print(f'imgs shape: {sample[0].shape}')
 
+    def generate_from_slices(self, slice_list:list, save_dir:str=None):
+        for slice in slice_list:
+            start_imgs_idx = np.arange(slice[0]- self.indent, slice[1] - self.indent, self.frame_rate)
+            for i, idx in enumerate(start_imgs_idx):
+                if i == 0 and self.indent > 0:
+                    continue
+                sample = self.gen_sample(idx)
+                if save_dir:
+                    self.save(sample, idx, save_dir)
+                else:
+                    print(f'imgs shape: {sample[0].shape}')
 
 
 class Pad():
@@ -366,13 +385,14 @@ class TestCropDataset(CropDataset):
 
 class DETRDataset(Dataset):
 
-    def __init__(self, dir_path:str, norm=True, transform=None, target_transforms=None) -> None:
+    def __init__(self, dir_path:str, norm=True, transform=None, target_transforms=None, rgb:bool=False) -> None:
         super().__init__()
         self.dir_path = dir_path
         self.norm = norm
         self.samples = os.listdir(dir_path)
         self.transform = transform
         self.target_transforms = target_transforms
+        self.rgb = rgb
 
     def __len__(self):
         return len(self.samples)
@@ -405,21 +425,31 @@ class DETRDataset(Dataset):
     def __getitem__(self, index:int):
         sample_name = self.samples[index]
         sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
-        targets = self._create_targets(bboxes, sample.shape[1:])
+        if sample.shape[-1] == 1:
+            img_size = sample.shape[:-1]
+        else:
+            img_size = sample.shape[1:]
+        targets = self._create_targets(bboxes, img_size)
         if self.transform:
             sample = self.transform(np.array(sample))
-        return sample.squeeze(), targets
+        return sample, targets
     
 
 class DetrLocDataset(DETRDataset):
 
-    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None) -> None:
+    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None, rgb:bool=True) -> None:
         super().__init__(dir_path, norm, transform, target_transforms)
         self.norm = norm
+        self.rgb=rgb
 
     def __getitem__(self, index: int):
         sample_name = self.samples[index]
         sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        if self.rgb:
+            if type(sample) == np.ndarray:
+                sample = np.concatenate([sample, sample, sample], axis=2)
+            else:
+                raise 'sample not ndarray'
         if self.norm:
             bboxes = self.normalize(torch.tensor(bboxes, dtype=torch.float32), sample.shape[1:])
         else:
@@ -428,3 +458,53 @@ class DetrLocDataset(DETRDataset):
             sample = self.transform(np.array(sample))
         return sample, bboxes
 
+
+class DetrLocDatasetTest(DetrLocDataset):
+
+    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None) -> None:
+        super().__init__(dir_path, norm, transform, target_transforms)
+
+    def __getitem__(self, index: int):
+        sample_name = self.samples[index]
+        sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        bboxes = torch.tensor(bboxes, dtype=torch.float32)
+        bboxes_norm = self.normalize(torch.tensor(bboxes, dtype=torch.float32), sample.shape[1:])
+        if self.transform:
+            t_sample = self.transform(np.array(sample))
+        return t_sample, sample, bboxes, bboxes_norm, {'path': sample_name, 'size': sample.shape[1:]}
+
+
+class SeqCls(Dataset):
+
+    def __init__(self, dir_path, sample_transform=None, target_transform=None) -> None:
+        super().__init__()
+        self.dir_path = dir_path
+        self.samples = os.listdir(dir_path)
+        self.sample_transform = sample_transform
+        self.target_transform = target_transform
+
+    def __len__(self):
+        return len(self.samples)
+    
+    def _from_pickle(self, data_path:str):
+        with open(data_path, "rb") as file:
+            data = pickle.load(file)
+        return data
+
+    def get_target(self, bboxes:list) -> Tensor:
+        if len(bboxes) == 0:
+            return 0.
+        else:
+            return 1.
+
+    def __getitem__(self, index) -> tuple:
+        sample_name = self.samples[index]
+        sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        sample = np.array(sample)
+        target = self.get_target(bboxes)
+        if self.sample_transform:
+            sample = self.sample_transform(sample)
+        if self.target_transform:
+            target = self.target_transform(target)
+        return sample, target, {'name': sample_name, 'size': sample.shape}
+    

@@ -144,6 +144,9 @@ class DetrLoss(nn.Module):
 
 
 class DetrLocLoss(nn.Module):
+    """
+    L1
+    """
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -169,5 +172,53 @@ class DetrLocLoss(nn.Module):
         idx = self._get_pred_permutation_idx(indices)
         pred_bboxes = preds[idx]
         target_bboxes = torch.cat([t[i] for t, (_, i) in zip(targets, indices)], dim=0)
-        loss_l1 = torch.nn.functional.l1_loss(pred_bboxes, target_bboxes, reduction='mean') 
-        return loss_l1
+        #print(f'target_bboxes shape: {target_bboxes.shape}')
+        loss_l1 = torch.nn.functional.l1_loss(pred_bboxes, target_bboxes, reduction='none')
+        return loss_l1.sum() / target_bboxes.shape[0]
+    
+
+class DetrLocLossV2(nn.Module):
+    """
+    L1 + GIoU
+    """
+    def __init__(self, l1_w=5., giou_w=2.) -> None:
+        super().__init__()
+        self.l1_w=l1_w
+        self.giou_w=giou_w
+
+    def _get_pred_permutation_idx(self, indices):
+        batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+        pred_idx = torch.cat([src for (src, _) in indices])
+        return batch_idx, pred_idx
+    
+    @torch.no_grad()
+    def match(self, preds:torch.Tensor, targets:list):
+        bs, num_q = preds.shape[:2]
+        pred = preds.flatten(0, 1)
+        gt = torch.cat([bbox for bbox in targets])
+        l1_cost = torch.cdist(pred, gt, p=1)
+        giou_cost = -generalized_iou(to_corners(pred), to_corners(gt))
+        cost = l1_cost * self.l1_w + giou_cost * self.giou_w
+        C = cost.view(bs, num_q, -1).cpu()
+        sizes = [len(bbox) for bbox in targets]
+        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+        indices_torch = [(torch.as_tensor(i, dtype=torch.int64, device='cuda'), torch.as_tensor(j, dtype=torch.int64, device='cuda')) for i, j in indices]
+        return indices_torch
+    
+    def forward(self, preds:torch.Tensor, targets:list):
+        num_bboxes = sum(len(bboxes) for bboxes in targets)
+        print(f'num_bboxes: {num_bboxes}')
+        indices = self.match(preds, targets)
+        idx = self._get_pred_permutation_idx(indices)
+        pred_bboxes = preds[idx]
+        target_bboxes = torch.cat([t[i] for t, (_, i) in zip(targets, indices)], dim=0)
+        #print(f'target_bboxes shape: {target_bboxes.shape}')
+        loss_l1 = torch.nn.functional.l1_loss(pred_bboxes, target_bboxes, reduction='none')
+        loss_giou = 1 - torch.diag(generalized_iou(
+            to_corners(pred_bboxes),
+            to_corners(target_bboxes),
+        ))
+        l1 = loss_l1.sum() / num_bboxes
+        giou = loss_giou.sum() / num_bboxes
+        out = l1 * self.l1_w + giou * self.giou_w
+        return out

@@ -209,15 +209,16 @@ class DetrLocCoach(Coach):
             sample, label = sample.to(self.device), self._to_cuda(label)
             pred = self.model(sample)
             loss = self.loss_fn(pred, label)
-            t_loss += loss.item()
             loss.backward()
             self.optimizer.step()
+            #print(loss.item())
+            t_loss += loss.item()
             progress_bar.set_postfix(
                 {
-                    'train_loss': t_loss
+                    'train_loss': t_loss / (batch + 1)
                 }
             )
-        return t_loss, t_acc
+        return t_loss / (batch + 1), t_acc
     
     def val_step(self, epoch, data) -> Tuple[float, float]:
         self.model.eval()
@@ -240,10 +241,10 @@ class DetrLocCoach(Coach):
                 v_loss += loss.item()
                 progress_bar.set_postfix(
                     {
-                        'val_loss': v_loss,
+                        'val_loss': v_loss / (batch + 1),
                     }
                 )
-        return v_loss, v_acc
+        return v_loss / (batch + 1), v_acc
 
 
 class ObjCoach:

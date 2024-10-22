@@ -4,6 +4,8 @@ from torch import nn
 from torch import Tensor
 import torch.nn.functional as F
 from loguru import logger
+from torchvision.models import resnet50
+
 
 class PatchEncoderLinear(nn.Module):
     def __init__(self, num_patches, token_dim, emb_dim):
@@ -17,19 +19,23 @@ class PatchEncoderLinear(nn.Module):
     
 
 class PatchEncoderConv2D(nn.Module):
-    def __init__(self, num_patches, emb_dim, P, C):
+    def __init__(self, num_patches, emb_dim, P, C, pos=True):
         super().__init__()
         self.emb_dim = emb_dim
         self.num_patches = num_patches
         self.conv_layer = nn.Conv2d(C, emb_dim, kernel_size=P, stride=P)
-        self.pos_emb = nn.Parameter(torch.randn(num_patches, emb_dim))
+        self.pos = pos
+        if pos:
+            self.pos_emb = nn.Parameter(torch.randn(num_patches, emb_dim))
     
     def forward(self, img:Tensor) -> Tensor:
         batch = img.shape[0]
         patches = self.conv_layer(img)
         patches = patches.reshape(batch, self.emb_dim, self.num_patches).swapaxes(1,2)
-        return patches + self.pos_emb
-
+        if self.pos:
+            return patches + self.pos_emb
+        else:
+            return patches
 
 class PatchEncoderPad(nn.Module):
     def __init__(self, patch_size:tuple, ):
@@ -174,13 +180,10 @@ class TransformerEncoder(nn.Module):
         return x
 
 
-class TransformerDecoder(nn.Module):
+class TfDecoderBlock(nn.Module):
 
-    def __init__(self, num_blocks:int, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+    def __init__(self, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
         super().__init__()
-        self.tfs = nn.Sequential(
-            *[TransformerBlock(emb_dim, num_heads, hidden_dim, dropout_prob) for _ in range(num_blocks)]
-        )
         self.ln1 = nn.LayerNorm(emb_dim)
         self.ln2 = nn.LayerNorm(emb_dim)
         self.ln3 = nn.LayerNorm(emb_dim)
@@ -202,9 +205,21 @@ class TransformerDecoder(nn.Module):
         features = self.mlp(features1)
         features = self.dropout3(features) + features1
         features = self.ln3(features)
+        return features
 
+
+class TransformerDecoder(nn.Module):
+
+    def __init__(self, num_blocks:int, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.tfs = nn.Sequential(
+            *[TfDecoderBlock(emb_dim, num_heads, hidden_dim, dropout_prob) for _ in range(num_blocks)]
+        )
+
+    def forward(self, queries:Tensor, memory:Tensor):
+        features = queries
         for tf in self.tfs:
-            features = tf(features)
+            features = tf(features, memory)
 
         return features
     
@@ -274,14 +289,22 @@ class DetrLoc(nn.Module):
         #    loc_layers.append(nn.Linear(emb_dim, le))
         #    emb_dim = le
         #self.loc_layers = nn.Sequential(*loc_layers)
-
+        #self.loc1 = nn.Linear(emb_dim, 512)
+        #self.gelu1 = nn.GELU()
+        #self.loc2 = nn.Linear(512, 128)
+        #self.gelu2 = nn.GELU()
         self.out_head = nn.Linear(emb_dim, 4)
 
     def forward(self, x:Tensor) -> Tensor:
         features = self.img_encoder(x)
         features = self.encoder(features)
         features = self.decoder(self.query_pos, features)
-        return self.out_head(features) 
+        
+        #features = self.loc1(features)
+        #features = self.gelu1(features)
+        #features = self.loc2(features)
+        #features = self.gelu2(features)
+        return self.out_head(features)#.sigmoid()
 
 
 class Sogmoid(nn.Module):
@@ -320,3 +343,152 @@ class VisTransformer(nn.Module):
         avg = self.glob_avg(blocks_out).squeeze(1)
         out = self.head(avg)
         return out.squeeze()
+
+
+class VanillaDETR(nn.Module):
+    def __init__(self, hidden_dim, nheads,
+        num_encoder_layers, num_decoder_layers):
+        super().__init__()
+        # We take only convolutional layers from ResNet-50 model
+        self.backbone = nn.Sequential(*list(resnet50(pretrained=True).children())[:-2])
+        self.conv = nn.Conv2d(2048, hidden_dim, 1)
+        self.transformer = nn.Transformer(hidden_dim, nheads,
+        num_encoder_layers, num_decoder_layers)
+    #    self.linear_class = nn.Linear(hidden_dim, num_classes + 1)
+        self.linear_bbox = nn.Linear(hidden_dim, 4)
+        self.query_pos = nn.Parameter(torch.rand(100, hidden_dim))
+        self.row_embed = nn.Parameter(torch.rand(50, hidden_dim // 2))
+        self.col_embed = nn.Parameter(torch.rand(50, hidden_dim // 2))
+        print(f'col emb: {self.col_embed.shape}\nrow emb: {self.row_embed.shape}')
+    
+    def forward(self, inputs):
+        x = self.backbone(inputs)
+        print(f'resnet out: {x.shape}')
+        h = self.conv(x)
+        print(f'conv out: {h.shape}')
+        H, W = h.shape[-2:]
+        pos = torch.cat([
+            self.col_embed[:W].unsqueeze(0).repeat(H, 1, 1),
+            self.row_embed[:H].unsqueeze(1).repeat(1, W, 1),
+            ], dim=-1).flatten(0, 1).unsqueeze(1).repeat(1, h.shape[0], 1)
+        #print(f'col emb squeezed: {self.col_embed[:W].unsqueeze(0).shape}')
+        #print(f'row emb squeezed: {self.row_embed[:H].unsqueeze(1).shape}')
+        #print(f'col emb repeted: {self.col_embed[:W].unsqueeze(0).repeat(H, 1, 1).shape}')
+        #print(f'row emb repeted: {self.row_embed[:H].unsqueeze(0).repeat(1, W, 1).shape}')
+        #print(f'pos: {torch.cat([
+        #self.col_embed[:W].unsqueeze(0).repeat(H, 1, 1),
+        #self.row_embed[:H].unsqueeze(1).repeat(1, W, 1),
+        #], dim=-1).shape}')
+        #print(f'pos shape: {torch.cat([
+        #self.col_embed[:W].unsqueeze(0).repeat(H, 1, 1),
+        #self.row_embed[:H].unsqueeze(1).repeat(1, W, 1),
+        #], dim=-1).flatten(0, 1).shape}')
+        #print(f'pos shape: {pos.shape}')
+        #print(f'conv flattened: {h.flatten(2).shape}')
+        #print(f'h: {h.flatten(2).permute(2, 0, 1).shape}')
+        h_flattened = h.flatten(2).permute(2, 0, 1)
+        print(f'pos shape {pos.shape}\nh flattened: {h_flattened.shape}')
+        s = pos + h_flattened
+        print(f's: ')
+        h = self.transformer(pos + h_flattened, self.query_pos.unsqueeze(1).repeat(1, h.shape[0], 1))
+        return self.linear_bbox(h).sigmoid()
+    
+
+
+class PositionEmbeddingLearned(nn.Module):
+
+    def __init__(self, num_pos_feats=256):
+        super().__init__()
+        self.row_embed = nn.Embedding(480, num_pos_feats//2)
+        self.col_embed = nn.Embedding(640, num_pos_feats//2)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.uniform_(self.row_embed.weight)
+        nn.init.uniform_(self.col_embed.weight)
+
+    def forward(self, x):
+        h, w = x.shape[-2:]
+        i = torch.arange(w, device=x.device)
+        j = torch.arange(h, device=x.device)
+        x_emb = self.col_embed(i)
+        y_emb = self.row_embed(j)
+        pos = torch.cat([
+            x_emb.unsqueeze(0).repeat(h, 1, 1),
+            y_emb.unsqueeze(1).repeat(1, w, 1),
+        ], dim=-1).permute(2, 0, 1).unsqueeze(0).repeat(x.shape[0], 1, 1, 1)
+        return pos.flatten(2)
+    
+
+class LocFFN(nn.Module):
+
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        return x
+
+
+class MyVanilaDetr(nn.Module):
+    def __init__(self, hidden_dim, nheads,
+        num_encoder_layers, num_decoder_layers):
+        super().__init__()
+        self.backbone = nn.Sequential(*list(resnet50(pretrained=True).children())[:-2])
+        for layer in self.backbone.parameters():
+            layer.requires_grad = False
+        self.conv = nn.Conv2d(2048, hidden_dim, 1)
+        self.transformer = nn.Transformer(hidden_dim, nheads, num_encoder_layers, num_decoder_layers)
+        self.bbox_embed = LocFFN(hidden_dim, hidden_dim, 4, 3)
+        self.query_pos = nn.Parameter(torch.rand(10, hidden_dim))
+        self.pos_emb = PositionEmbeddingLearned(hidden_dim)
+
+    def forward(self, inputs):
+        x = self.backbone(inputs)
+        #print(f'resnet out: {x.shape}')
+        h = self.conv(x)
+        #print(f'conv out: {h.shape}')
+        pos = self.pos_emb(h)
+        #print(f'pos: {pos.shape}')
+        h_flattened = h.flatten(2).permute(2, 0, 1)
+        pos = pos.permute(2,0,1)
+        #print(f'pos shape {pos.shape}\nh flattened: {h_flattened.shape}')
+        h = self.transformer(pos + h_flattened, self.query_pos.unsqueeze(1).repeat(1, h.shape[0], 1))
+        #print(f'out transformer: {h.shape}')
+        #print(f'out transposed: {h.transpose(0, 1).shape}')
+        return self.bbox_embed(h.transpose(0, 1)).sigmoid()
+    
+
+class MyVanilaDetrV2(nn.Module):
+    def __init__(self, hidden_dim, nheads,
+        num_encoder_layers, num_decoder_layers):
+        super().__init__()
+        self.backbone = nn.Sequential(*list(resnet50(pretrained=True).children())[:-2])
+        for layer in self.backbone.parameters():
+            layer.requires_grad = False
+        self.conv = nn.Conv2d(2048, hidden_dim, 1)
+        self.transformer = nn.Transformer(hidden_dim, nheads, num_encoder_layers, num_decoder_layers)
+        self.bbox_embed = LocFFN(hidden_dim, hidden_dim, 4, 3)
+        self.query_pos = nn.Parameter(torch.rand(10, hidden_dim))
+        self.pos_emb = PositionEmbeddingLearned(hidden_dim)
+
+    def forward(self, inputs):
+        x = self.backbone(inputs)
+        #print(f'resnet out: {x.shape}')
+        h = self.conv(x)
+        #print(f'conv out: {h.shape}')
+        pos = self.pos_emb(h)
+        #print(f'pos: {pos.shape}')
+        h_flattened = h.flatten(2).permute(2, 0, 1)
+        pos = pos.permute(2,0,1)
+        #print(f'pos shape {pos.shape}\nh flattened: {h_flattened.shape}')
+        h = self.transformer(pos + h_flattened, self.query_pos.unsqueeze(1).repeat(1, h.shape[0], 1))
+        #print(f'out transformer: {h.shape}')
+        #print(f'out transposed: {h.transpose(0, 1).shape}')
+        return self.bbox_embed(h.transpose(0, 1)).sigmoid()
+    
+
