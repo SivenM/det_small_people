@@ -13,7 +13,7 @@ BASE_DIR = "runs"
 
 class Coach:
 
-    def __init__(self, name:str, save_dir:str=None, metric:str='multi_acc', logger:bool=True, checkpoint:bool=True, tboard:bool=False, device='cuda', debug:bool=False) -> None:
+    def __init__(self, name:str, save_dir:str=None, metric:str='bin_acc', logger:bool=True, checkpoint:bool=True, tboard:bool=True, device='cuda', debug:bool=False) -> None:
         if save_dir:
             utils.mkdir(save_dir)
             utils.mkdir(f'{save_dir}/{name}')
@@ -27,7 +27,7 @@ class Coach:
         
         if metric == 'multi_acc':
             self.metric = multiclass_accuracy
-        elif metric == ' bin_acc':
+        elif metric == 'bin_acc':
             self.metric = binary_accuracy
         else:
             raise 'Wrong metric'
@@ -82,25 +82,22 @@ class Coach:
         )
 
         for batch, (sample, label) in progress_bar:
-            if torch.cat([v["bbox"] for v in label]).shape[0] == 0:
-                continue
             self.optimizer.zero_grad()
-            sample, label= sample.to(self.device), self._to_cuda(label)
+            sample, label = sample.to(self.device), label.to(self.device).squeeze(-1)
             pred = self.model(sample)
             loss = self.loss_fn(pred, label)
             t_loss += loss.item()
             #if self.debug:
             #print(f'loss: {t_loss}')
-            #t_acc += self.metric(pred, label['labels']).item()
+            t_acc += self.metric(pred, label).item()
             loss.backward()
             self.optimizer.step()
             progress_bar.set_postfix(
                 {
                     'train_loss': t_loss / (batch + 1),
-                    #'train_acc': t_acc / (batch + 1)
+                    'train_acc': t_acc / (batch + 1)
                 }
             )
-
         t_loss = t_loss / len(data)
         t_acc = t_acc / len(data)
         return t_loss, t_acc
@@ -118,17 +115,15 @@ class Coach:
 
         with torch.no_grad():
             for batch, (sample, label) in progress_bar:
-                if torch.cat([v["bbox"] for v in label]).shape[0] == 0:
-                    continue
-                sample, label= sample.to(self.device), self._to_cuda(label)
+                sample, label= sample.to(self.device), label.to('cuda').squeeze(-1)
                 pred = self.model(sample)
                 loss = self.loss_fn(pred, label)
                 v_loss += loss.item()
-                #v_acc += self.metric(pred, label).item()
+                v_acc += self.metric(pred, label.squeeze(-1)).item()
                 progress_bar.set_postfix(
                     {
                         'val_loss': v_loss / (batch + 1),
-                        #'val_acc': v_acc / (batch + 1)
+                        'val_acc': v_acc / (batch + 1)
                     }
                 )
         v_loss = v_loss / len(data)
@@ -155,7 +150,7 @@ class Coach:
             self.checkpoint.save(self.model, epoch, v_loss)
 
         if self.tboard:
-            self.tboard.add([t_loss, v_loss], epoch)
+            self.tboard.add([t_loss, v_loss, t_acc, v_acc], epoch)
 
     def plot_history(self):
         pass

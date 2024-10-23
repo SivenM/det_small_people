@@ -46,9 +46,16 @@ class ModelCheckpoint:
 
 
 class TensorBoard:
-    def __init__(self, log_dir:str, metrics_names:list=['t_loss', 'v_loss']) -> None:
+    def __init__(self, log_dir:str, metrics_names:list=['Loss', 'Acc']) -> None:
         self.writer=SummaryWriter(log_dir)
-        self.metrics_names = metrics_names
+        self.metrics_names = self.get_metric_names(metrics_names)
+
+    def get_metric_names(self, in_names:list):
+        out_names = []
+        for name in in_names:
+            out_names.append(name + '/train')
+            out_names.append(name + '/val')
+        return out_names
 
     def add(self, data:list, epoch:int) -> None:
         for i, info in enumerate(data):

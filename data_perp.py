@@ -476,12 +476,13 @@ class DetrLocDatasetTest(DetrLocDataset):
 
 class SeqCls(Dataset):
 
-    def __init__(self, dir_path, sample_transform=None, target_transform=None) -> None:
+    def __init__(self, dir_path, sample_transform=None, target_transform=None, meta:bool=False) -> None:
         super().__init__()
         self.dir_path = dir_path
         self.samples = os.listdir(dir_path)
         self.sample_transform = sample_transform
         self.target_transform = target_transform
+        self.meta = meta
 
     def __len__(self):
         return len(self.samples)
@@ -500,11 +501,13 @@ class SeqCls(Dataset):
     def __getitem__(self, index) -> tuple:
         sample_name = self.samples[index]
         sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
-        sample = np.array(sample)
+        #t_sample = torch.tensor(sample)
         target = self.get_target(bboxes)
         if self.sample_transform:
             sample = self.sample_transform(sample)
         if self.target_transform:
             target = self.target_transform(target)
-        return sample, target, {'name': sample_name, 'size': sample.shape}
-    
+        if self.meta:
+            return sample, target, {'name': sample_name, 'size': sample.shape}
+        else:
+            return sample, target

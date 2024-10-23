@@ -492,3 +492,29 @@ class MyVanilaDetrV2(nn.Module):
         return self.bbox_embed(h.transpose(0, 1)).sigmoid()
     
 
+class SeqModel(nn.Module):
+
+    def __init__(self, num_cls=1,
+                num_blocks:int=3, 
+                emb_dim:int=256, 
+                patch_size:int=40, 
+                img_size=(480, 640), 
+                frame_rate:int=10
+                ) -> None:
+        super().__init__()
+        num_patches = (img_size[0] // patch_size) * (img_size[1] // patch_size)
+        self.img_encoder= PatchEncoderConv2D(num_patches, emb_dim, patch_size, frame_rate)
+        self.encoder = TransformerEncoder(num_blocks)
+        self.glob_avg = nn.AdaptiveAvgPool2d((1,1))
+        self.head = nn.Sequential(
+            nn.Linear(1, 256),
+            nn.GELU(),
+            nn.Linear(256, num_cls),
+            nn.Sigmoid()
+        )
+
+    def forward(self, sample:Tensor) -> Tensor:
+        feature = self.img_encoder(sample)
+        feature = self.encoder(feature)
+        feature = self.glob_avg(feature)
+        return self.head(feature).squeeze()
