@@ -1,8 +1,8 @@
 import os
 import yaml
-from data_perp import DETRDataset, DetrLocDataset
-from models import DETR, DetrLoc, MyVanilaDetr
-from coaching import Coach, DetrLocCoach
+from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
+from models import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc
+from coaching import Coach, DetrLocCoach, LocCoach
 import losses
 import utils
 
@@ -63,8 +63,32 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             transform=sample_transforms,
             rgb=rgb
             )
+    elif model_type == 'seq_detr_loc':
+        sample_transforms = v2.Compose([
+        v2.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.)
+        #v2.ToImage(),
+        #v2.ToDtype(torch.float32, scale=True),
+        #transforms.Normalize(mean=[0.485, 0.456, 0.406, 0.485, 0.456, 0.406,0.485, 0.456, 0.406, 0.406],
+        #std=[0.229, 0.224, 0.225, 0.229, 0.224, 0.225, 0.229, 0.224, 0.225, 0.225] )
+        ])
+        target_transforms = v2.Lambda(lambda x: torch.tensor([x], dtype=torch.float32)) 
+        dataset = DetrLocDataset(
+            path, 
+            norm=norm, 
+            transform=sample_transforms
+            )
+    elif model_type == 'classic_loc':
+        sample_transforms = v2.Compose([
+        v2.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.)
+        ])
+        dataset = LocDataLoader(
+            path, 
+            norm=norm, 
+            transform=sample_transforms,
+            max_bboxes=7
+            )
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
-
     return dataloader
 
 
@@ -76,6 +100,7 @@ def print_params(cfg:dict, num_train_data:int, num_val_data:int):
     print(f'num_train_data: {num_train_data}')
     print(f'num_val_data: {num_val_data}')
     print('\n')
+
 
 def train(cfg:dict):
     if cfg['model_type'] == 'detr':
@@ -115,6 +140,38 @@ def train(cfg:dict):
             cfg['num_decoder_blocks'],
         )
         loss_fn = losses.DetrLocLossV2()
+    elif cfg['model_type'] == 'seq_detr_loc':
+        coach = DetrLocCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
+        train_model = SeqDetrLoc(
+            cfg['emb_dim'],
+            cfg['num_queries'],
+            cfg['pos_per_block'],
+            cfg['num_encoder_blocks'],
+            cfg['num_decoder_blocks'],
+            cfg['num_conv_layers'],
+            cfg['out_channel_outputs'],
+            cfg['patch_size'],
+            cfg['num_imgs'],
+            cfg['max_seq']
+        )
+        loss_fn = losses.DetrLocLossV2()
+
+    elif cfg['model_type'] == 'classic_loc':
+        coach = LocCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
+        train_model = SeqDetrLoc(
+            cfg['emb_dim'],
+            cfg['num_queries'],
+            cfg['pos_per_block'],
+            cfg['num_encoder_blocks'],
+            cfg['num_decoder_blocks'],
+            cfg['num_conv_layers'],
+            cfg['out_channel_outputs'],
+            cfg['patch_size'],
+            cfg['num_imgs'],
+            cfg['max_seq']
+        )
+        loss_fn = torch.nn.L1Loss()
+        
     else:
         raise "Wrong model type. Only detr or detr_loc"
     

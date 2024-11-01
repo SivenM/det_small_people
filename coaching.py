@@ -85,6 +85,7 @@ class Coach:
             self.optimizer.zero_grad()
             sample, label = sample.to(self.device), label.to(self.device).squeeze(-1)
             pred = self.model(sample)
+            pred = pred.squeeze(-1)
             loss = self.loss_fn(pred, label)
             t_loss += loss.item()
             #if self.debug:
@@ -117,6 +118,7 @@ class Coach:
             for batch, (sample, label) in progress_bar:
                 sample, label= sample.to(self.device), label.to('cuda').squeeze(-1)
                 pred = self.model(sample)
+                pred = pred.squeeze(-1)
                 loss = self.loss_fn(pred, label)
                 v_loss += loss.item()
                 v_acc += self.metric(pred, label.squeeze(-1)).item()
@@ -240,6 +242,75 @@ class DetrLocCoach(Coach):
                     }
                 )
         return v_loss / (batch + 1), v_acc
+
+
+
+class LocCoach(Coach):
+    def __init__(self, name: str, save_dir: str = None, metric: str = 'bin_acc', logger: bool = True, checkpoint: bool = True, tboard: bool = True, device='cuda', debug: bool = False) -> None:
+        super().__init__(name, save_dir, metric, logger, checkpoint, tboard, device, debug)
+
+    def train_step(self, epoch, data) -> Tuple[float, float]:
+        self.model.train()
+        self.loss_fn.train()
+        t_loss = 0.
+        t_acc = 0.
+
+        progress_bar = tqdm(
+            enumerate(data),
+            desc=f"train epoch {epoch}",
+            total=(len(data)),
+            disable=False
+        )
+
+        for batch, (sample, label) in progress_bar:
+            sample, label = sample.to(self.device), label.to(self.device)
+            pred = self.model(sample)
+            loss = self.loss_fn(pred, label)
+            t_loss += loss.item()
+            #if self.debug:
+            #print(f'loss: {t_loss}')
+            #t_acc += self.metric(pred, label).item()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            progress_bar.set_postfix(
+                {
+                    'train_loss': t_loss / (batch + 1),
+                    #'train_acc': t_acc / (batch + 1)
+                }
+            )
+        t_loss = t_loss / len(data)
+        #t_acc = t_acc / len(data)
+        return t_loss, t_acc
+
+    def val_step(self, epoch, data) -> Tuple[float, float]:
+        self.model.eval()
+        self.loss_fn.eval()
+        v_loss, v_acc = 0, 0
+        progress_bar = tqdm(
+            enumerate(data),
+            desc=f"val epoch {epoch}",
+            total=(len(data)),
+            disable=False
+        )
+
+        with torch.no_grad():
+            for batch, (sample, label) in progress_bar:
+                sample, label= sample.to(self.device), label.to('cuda')
+                pred = self.model(sample)
+                pred = pred
+                loss = self.loss_fn(pred, label)
+                v_loss += loss.item()
+                #v_acc += self.metric(pred, label.squeeze(-1)).item()
+                progress_bar.set_postfix(
+                    {
+                        'val_loss': v_loss / (batch + 1),
+                        #'val_acc': v_acc / (batch + 1)
+                    }
+                )
+        v_loss = v_loss / len(data)
+        #v_acc = v_acc / len(data)
+        return v_loss, v_acc
 
 
 class ObjCoach:

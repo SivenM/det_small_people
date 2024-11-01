@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 import torch
 from torch import nn
@@ -16,6 +17,53 @@ class PatchEncoderLinear(nn.Module):
 
     def forward(self, patches):
         return self.projection(patches) + self.pos_emb
+    
+
+class CCTTokenaizer(nn.Module):
+
+    def __init__(
+            self, 
+            emb_dim:int=256,  
+            num_hidden_layers:int=2, 
+            num_output_channels:list=[64, 128], 
+            P:int=40, 
+            C=1
+            ):
+        
+        super().__init__()
+        self.out_dim = num_output_channels[-1]
+        self.patch_dim = P
+        self.emb_dim = emb_dim
+        modules = []
+        inputs = C
+        for i in range(num_hidden_layers):
+            modules.append(
+                nn.Conv2d(
+                    inputs, 
+                    num_output_channels[i],
+                    kernel_size=3,
+                    padding=1
+                    ))
+            modules.append(nn.ReLU())
+            modules.append(nn.MaxPool2d(2))
+            inputs = num_output_channels[i]
+        modules.append(
+            nn.Conv2d(
+                inputs, 
+                emb_dim,
+                kernel_size=P,
+                stride=P
+                ))
+        modules.append(nn.ReLU())
+        self.conv_model = nn.Sequential(*modules)
+
+    def forward(self, images:Tensor) -> Tensor:
+        batch = images.shape[0]
+        features = self.conv_model(images)
+        f_size = features.shape[2:]
+        num_patches = f_size[-1] * f_size[-2]
+        patches = features.reshape(batch, num_patches, self.emb_dim)
+        return patches
     
 
 class PatchEncoderConv2D(nn.Module):
@@ -76,7 +124,29 @@ class PatchEncoderPad(nn.Module):
         return img_padded
     
 
-class SelfAttention(nn.Module):
+class LearnablePositionalEmbedding(nn.Module):
+    def __init__(self, max_sequence_length, hidden_dim):
+        super().__init__()
+        self.position_embeddings = nn.Parameter(
+            torch.zeros(1, max_sequence_length, hidden_dim)
+        )
+        self.max_sequence_length = max_sequence_length
+        nn.init.trunc_normal_(self.position_embeddings, std=0.02)
+
+    def forward(self, x):
+        bs = x.size(0)
+        seq_length = x.size(1)
+        if seq_length > self.max_sequence_length:
+            raise ValueError(
+                f"Sequence length ({seq_length}) exceeds maximum length ({self.max_sequence_length})"
+            )
+
+        position_embeddings = self.position_embeddings[:, :seq_length, :]
+        position_embeddings = position_embeddings.expand(bs,-1,-1)
+        return position_embeddings
+    
+
+class SelfAttention_old(nn.Module):
     def __init__(self, emb_dim=256, key_dim=64, dropout=0.0) -> None:
         super().__init__()
         self.emb_dim = emb_dim
@@ -102,7 +172,7 @@ class SelfAttention(nn.Module):
         return weighted_values
 
 
-class MultiHeadAttention(nn.Module):
+class MultiHeadAttention_old(nn.Module):
     def __init__(self, emb_dim=256, num_heads=8) -> None:
         super().__init__()
         self.num_heads = num_heads
@@ -123,7 +193,49 @@ class MultiHeadAttention(nn.Module):
         Z = torch.cat(attention_scores, -1)
         attention_score = torch.matmul(Z, self.W)
         return attention_score
-    
+
+
+class SelfAttention(nn.Module):
+    def __init__(self, emb_dim=256, key_dim=64, dropout=0.0) -> None:
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.key_dim = key_dim
+
+        self.query = nn.Linear(emb_dim, key_dim)
+        self.key = nn.Linear(emb_dim, key_dim)
+        self.value = nn.Linear(emb_dim, key_dim)
+
+    def forward(self, q, k, v):
+        q = self.query(q)
+        k = self.key(k)
+        v = self.value(v)
+
+        dot_prod = torch.matmul(q, torch.transpose(k, -2, -1))
+        scaled_dot_prod = dot_prod / np.sqrt(self.key_dim)
+        attention_weights = F.softmax(scaled_dot_prod, dim=1)
+        weighted_values = torch.matmul(attention_weights, v)
+        return weighted_values
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, emb_dim=256, num_heads=8) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.emb_dim = emb_dim
+
+        assert emb_dim % num_heads == 0, f'emb_dim: {emb_dim} | num_heads: {num_heads} | {emb_dim % num_heads}'
+        self.key_dim = emb_dim // num_heads
+
+        self.attention_list = [SelfAttention(emb_dim, self.key_dim) for _ in range(num_heads)]
+        self.multi_head_attention = nn.ModuleList(self.attention_list)
+        self.W = nn.Parameter(torch.randn(num_heads * self.key_dim, emb_dim))
+
+    def forward(self, query, key, value):
+        attention_scores = [attention(query, key, value) for attention in self.multi_head_attention]
+        Z = torch.cat(attention_scores, -1)
+        attention_score = torch.matmul(Z, self.W)
+        return attention_score
+
 
 class MLP(nn.Module):
     def __init__(self, emb_dim=256, hidden_dim=1024) -> None:
@@ -518,3 +630,335 @@ class SeqModel(nn.Module):
         feature = self.encoder(feature)
         feature = self.glob_avg(feature)
         return self.head(feature).squeeze()
+    
+
+class SeqPool(nn.Module):
+    """
+    Альтернатива AvgPool. Используй для классификации энкодера
+    """
+    def __init__(self, emb_dim:int=256) -> None:
+        super().__init__()
+        self.attention = nn.Linear(emb_dim, 1)
+    
+    def forward(self, x):
+        bs = x.shape[0]
+        att_weights = nn.functional.softmax(self.attention(x), dim=1)
+        att_weights = att_weights.transpose(2,1)
+        weighted_representation = torch.matmul(att_weights, x)
+        return weighted_representation.reshape(bs, -1)
+    
+
+class StochasticDepth(nn.Module):
+    """
+    Dropout на уровне слоев блока
+    https://arxiv.org/pdf/1603.09382
+    """
+    def __init__(self, drop_prob) -> None:
+        super().__init__()
+        self.drop_prob = drop_prob
+        self.seed_generator = torch.Generator()
+        self.seed_generator.manual_seed(1337)
+
+    def forward(self, x):
+        if self.training:
+            keep_prob = 1 - self.drop_prob
+            shape = (x.shape[0],) + (1,) * (len(x.shape) - 1)
+            rand_tensor = keep_prob + torch.rand(shape, generator=self.seed_generator).to('cuda')
+            return (x / keep_prob) * rand_tensor
+        return x
+    
+
+class CCTBlock(nn.Module):
+    def __init__(self, dpr, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.MSA = MultiHeadAttention(emb_dim, num_heads)
+        self.MLP = MLP(emb_dim, hidden_dim)
+
+        self.layer_norm1 = nn.LayerNorm(emb_dim)
+        self.layer_norm2 = nn.LayerNorm(emb_dim)
+
+        self.dropout1 = nn.Dropout(p=dropout_prob) 
+        self.dropout2 = nn.Dropout(p=dropout_prob) 
+        self.dropout3 = StochasticDepth(dpr)
+
+    def forward(self, x):
+        out_drop_1 = self.dropout1(x)
+        out_norm_1 = self.layer_norm1(out_drop_1)
+        out_msa = self.MSA(out_norm_1)
+        out_drop_2 = self.dropout2(out_msa)
+        add = x + out_drop_2
+        out_norm_2 = self.layer_norm2(add)
+        out_mlp = self.MLP(out_norm_2)
+        out_drop_3 = self.dropout3(out_mlp)
+        return add + out_drop_3
+
+
+
+class CCTransformer(nn.Module):
+    """
+    Compact Transformer
+    https://arxiv.org/abs/2104.05704
+    """
+    def __init__(
+            self, 
+            num_classes,
+            emb_dim, 
+            num_blocks,
+            num_conv_layers,
+            out_channel_outputs,
+            patch_size,
+            C,
+            max_seq,
+            stochastic_depth_rate=0.1
+            ):
+        super().__init__()
+        self.img_encoder = CCTTokenaizer(
+            emb_dim,
+            num_conv_layers,
+            out_channel_outputs,
+            P=patch_size,
+            C=C,
+        )
+        self.pos_emb = LearnablePositionalEmbedding(max_seq, emb_dim)
+        dpr = [x for x in np.linspace(0, stochastic_depth_rate, num_blocks)]
+        modules = []
+        for i in range(num_blocks):
+            modules.append(CCTBlock(dpr[i], emb_dim))
+        self.t_blocks = nn.Sequential(*modules)
+        self.norm = nn.LayerNorm(emb_dim)
+        self.seq_pool = SeqPool(emb_dim)
+        self.logits = nn.Linear(emb_dim, num_classes)
+
+    def forward(self, image:Tensor) -> Tensor:
+        x = self.img_encoder(image)
+        x = x + self.pos_emb(x)
+        for block in self.t_blocks:
+            x = block(x)
+        x = self.norm(x)
+        x = self.seq_pool(x)
+        return nn.functional.sigmoid(self.logits(x))
+    
+
+class CCTransformerV2(nn.Module):
+    def __init__(
+            self, 
+            num_classes,
+            emb_dim, 
+            num_blocks,
+            num_conv_layers,
+            out_channel_outputs,
+            patch_size,
+            C,
+            max_seq,
+            stochastic_depth_rate=0.1
+            ):
+        super().__init__()
+        self.img_encoder = CCTTokenaizer(
+            emb_dim,
+            num_conv_layers,
+            out_channel_outputs,
+            P=patch_size,
+            C=C,
+        )
+        self.pos_emb = LearnablePositionalEmbedding(max_seq, emb_dim)
+        self.backbone = SecEncoder(emb_dim, num_blocks, stochastic_depth_rate)
+        self.norm = nn.LayerNorm(emb_dim)
+        self.seq_pool = SeqPool(emb_dim)
+        self.logits = nn.Linear(emb_dim, num_classes)
+    
+    def forward(self, seq:Tensor):
+        x = self.img_encoder(seq)
+        pos = self.pos_emb(x)
+        x = self.backbone(x, pos)
+        x = self.norm(x)
+        x = self.seq_pool(x)
+        return nn.functional.sigmoid(self.logits(x))
+    
+
+class SeqDetrLoc(nn.Module):
+    def __init__(
+            self, 
+            emb_dim:int=256,
+            num_bboxes:int=10,
+            pos_per_block:bool=True,
+            num_encoder_blocks:int=1,
+            num_decoder_blocks:int=1,
+            num_conv_layers:int=2,
+            out_channel_outputs:list=[64, 128],
+            patch_size:int=5,
+            C:int=10,
+            max_seq:int=768,
+            stochastic_depth_rate=0.1
+            
+            ):
+        super().__init__()
+        self.pos_per_block = pos_per_block
+        self.tokenizer = CCTTokenaizer(
+            emb_dim,
+            num_conv_layers,
+            out_channel_outputs,
+            P=patch_size,
+            C=C,
+        )
+        self.pos_emb = LearnablePositionalEmbedding(max_seq, emb_dim)
+        self.encoder = SecEncoder(emb_dim, num_encoder_blocks, stochastic_depth_rate)
+        self.decoder = SecDecoder(emb_dim, num_decoder_blocks, stochastic_depth_rate)
+        self.query_emb = nn.Parameter(torch.rand(1, num_bboxes, emb_dim), requires_grad=True)
+        self.bbox_embed = LocFFN(emb_dim, emb_dim, 4, 3)
+        self.sigma = nn.Sigmoid()
+
+    def forward(self, sequence:Tensor) -> Tensor:
+        tokens = self.tokenizer(sequence)
+        pos = self.pos_emb(tokens)
+        if self.pos_per_block:
+            features = self.encoder(tokens, pos)
+            q = self.query_emb.repeat(len(sequence), 1, 1)
+            out = self.decoder(torch.zeros_like(q), features, pos, q)
+        else:
+            features = self.encoder(tokens + pos)
+            q = self.query_emb.repeat(len(sequence), 1, 1)
+            out = self.decoder(q, features)
+        bboxes = self.bbox_embed(out)
+        return self.sigma(bboxes) 
+    
+
+class SecEncoder(nn.Module):
+    def __init__(self, emb_dim:int=256, num_blocks:int=1, stochastic_depth_rate:float=0.1):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.num_blocks = num_blocks
+        self.stochastic_depth_rate = stochastic_depth_rate
+        dpr = [x for x in np.linspace(0, stochastic_depth_rate, num_blocks)]
+        modules = []
+        for i in range(num_blocks):
+            modules.append(CCTEncoderBlock(dpr[i], emb_dim))
+        self.t_blocks = nn.Sequential(*modules)
+
+    def forward(self, x:Tensor, pos=None):
+        for block in self.t_blocks:
+            x = block(x, pos)
+        return x
+        
+
+class SecDecoder(nn.Module):
+    def __init__(self, emb_dim:int=256, num_blocks:int=1, stochastic_depth_rate:float=0.1):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.num_blocks = num_blocks
+        self.stochastic_depth_rate = stochastic_depth_rate
+        dpr = [x for x in np.linspace(0, stochastic_depth_rate, num_blocks)]
+        modules = []
+        for i in range(num_blocks):
+            modules.append(CCTDecoderBlockV2(dpr[i], emb_dim))   #DEBUG
+        self.t_blocks = nn.Sequential(*modules)
+
+    def forward(self, query:Tensor, memory:Tensor,  pos=None, query_pos=None):
+        for block in self.t_blocks:
+            query = block(query, memory, pos, query_pos)
+        return query
+
+
+class CCTEncoderBlock(nn.Module):
+    
+    def __init__(self, dpr, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.MSA = MultiHeadAttention(emb_dim, num_heads)
+        self.MLP = MLP(emb_dim, hidden_dim)
+
+        self.layer_norm1 = nn.LayerNorm(emb_dim)
+        self.layer_norm2 = nn.LayerNorm(emb_dim)
+
+        self.dropout1 = nn.Dropout(p=dropout_prob) 
+        self.dropout2 = StochasticDepth(dpr)
+
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+
+    def forward(self, x: Tensor, pos: Optional[Tensor] = None):
+        out_norm_1 = self.layer_norm1(x)
+        q = k = self.with_pos_embed(out_norm_1, pos)
+        out_msa = self.MSA(q, k, out_norm_1)
+        out_drop_1 = self.dropout1(out_msa)
+        x = x + out_drop_1
+        out_norm_2 = self.layer_norm2(x)
+        out_mlp = self.MLP(out_norm_2)
+        out_drop_2 = self.dropout2(out_mlp)
+        return x + out_drop_2
+
+
+class CCTDecoderBlock(nn.Module):
+    
+    def __init__(self, dpr, emb_dim=256, num_heads=8, hidden_dim=2048, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.self_att = MultiHeadAttention(emb_dim, num_heads)
+        self.MSA = MultiHeadAttention(emb_dim, num_heads)
+        self.MLP = MLP(emb_dim, hidden_dim)
+
+        self.layer_norm1 = nn.LayerNorm(emb_dim)
+        self.layer_norm2 = nn.LayerNorm(emb_dim)
+        self.layer_norm3 = nn.LayerNorm(emb_dim)
+
+        self.dropout1 = nn.Dropout(p=dropout_prob) 
+        self.dropout2 = nn.Dropout(p=dropout_prob) 
+        self.dropout3 = StochasticDepth(dpr)
+
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+
+    def forward(self, query: Tensor, memory:Tensor, pos: Optional[Tensor] = None, query_pos: Optional[Tensor] = None):
+        query_norm = self.layer_norm1(query)
+        q = k = self.with_pos_embed(query_norm, query_pos)
+        query_norm = self.self_att(q, k, query_norm)
+        out_drop_1 = self.dropout1(query_norm)
+        query = query + out_drop_1
+        query = self.layer_norm2(query)
+        out_msa = self.MSA(
+            self.with_pos_embed(query_norm, query_pos),
+            self.with_pos_embed(memory, pos), 
+            memory
+            )
+        out_drop_2 = self.dropout2(out_msa)
+        query = query + out_drop_2
+        out_norm_2 = self.layer_norm3(query)
+        out_mlp = self.MLP(out_norm_2)
+        out_drop_3 = self.dropout3(out_mlp)
+        return query + out_drop_3
+
+
+class CCTDecoderBlockV2(nn.Module):
+    
+    def __init__(self, dpr, emb_dim=256, num_heads=8, hidden_dim=1024, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.self_att = nn.MultiheadAttention(emb_dim, num_heads, batch_first=True)
+        self.MSA = nn.MultiheadAttention(emb_dim, num_heads, batch_first=True)
+        self.MLP = MLP(emb_dim, hidden_dim)
+
+        self.layer_norm1 = nn.LayerNorm(emb_dim)
+        self.layer_norm2 = nn.LayerNorm(emb_dim)
+        self.layer_norm3 = nn.LayerNorm(emb_dim)
+
+        self.dropout1 = nn.Dropout(p=dropout_prob) 
+        self.dropout2 = nn.Dropout(p=dropout_prob) 
+        self.dropout3 = StochasticDepth(dpr)
+
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+
+    def forward(self, query: Tensor, memory:Tensor, pos: Optional[Tensor] = None, query_pos: Optional[Tensor] = None):
+        query_norm = self.layer_norm1(query)
+        q = k = self.with_pos_embed(query_norm, query_pos)
+        query_norm = self.self_att(q, k, query_norm)[0]
+        out_drop_1 = self.dropout1(query_norm)
+        query = query + out_drop_1
+        query = self.layer_norm2(query)
+        out_msa = self.MSA(
+            self.with_pos_embed(query_norm, query_pos),
+            self.with_pos_embed(memory, pos), 
+            memory
+            )[0]
+        out_drop_2 = self.dropout2(out_msa)
+        query = query + out_drop_2
+        out_norm_2 = self.layer_norm3(query)
+        out_mlp = self.MLP(out_norm_2)
+        out_drop_3 = self.dropout3(out_mlp)
+        return query + out_drop_3

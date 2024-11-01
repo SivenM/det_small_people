@@ -1,7 +1,7 @@
 import os
 import yaml
 from data_perp import SeqCls
-from models import SeqModel
+from models import SeqModel, CCTransformer, CCTransformerV2
 from coaching import Coach, DetrLocCoach
 
 import torch
@@ -41,8 +41,16 @@ def train(cfg:dict) -> None:
     train_dataloader = create_dataloader(cfg['train_dataset'], cfg['train_batch_size'])
     val_dataloader = create_dataloader(cfg['val_dataset'], cfg['val_batch_size'])
 
-    coach = Coach(cfg['name'], cfg['save_dir'])
-    model = SeqModel(1, cfg['num_blocks'])
+    coach = Coach(cfg['name'], cfg['save_dir'], device='cuda')
+    #model = SeqModel(1, cfg['num_blocks'])
+    model = CCTransformerV2(
+        num_classes=1, 
+        emb_dim=cfg['emb_dim'], 
+        num_blocks=cfg['num_blocks'], 
+        num_conv_layers=cfg['num_conv_layers'], 
+        out_channel_outputs=cfg['out_ch_outputs'], 
+        patch_size=cfg['patch_size'], C=cfg['frame_rate'], 
+        max_seq=cfg['max_seq'])
     loss_fn = torch.nn.BCELoss()
 
     print_params(cfg, len(train_dataloader), len(val_dataloader))

@@ -143,9 +143,20 @@ class DetrLoss(nn.Module):
         return losses
 
 
+class LocLoss(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+
+    def forward(self, preds:torch.Tensor, targets:list):
+        pass
+        ##print(f'target_bboxes shape: {target_bboxes.shape}')
+        #loss_l1 = torch.nn.functional.l1_loss(pred_bboxes, target_bboxes, reduction='none')
+        #return loss_l1.sum() / target_bboxes.shape[0]
+    
+
 class DetrLocLoss(nn.Module):
     """
-    L1
+    matcher + L1
     """
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -179,7 +190,7 @@ class DetrLocLoss(nn.Module):
 
 class DetrLocLossV2(nn.Module):
     """
-    L1 + GIoU
+    matcher + L1 + GIoU
     """
     def __init__(self, l1_w=5., giou_w=2.) -> None:
         super().__init__()
@@ -207,7 +218,6 @@ class DetrLocLossV2(nn.Module):
     
     def forward(self, preds:torch.Tensor, targets:list):
         num_bboxes = sum(len(bboxes) for bboxes in targets)
-        print(f'num_bboxes: {num_bboxes}')
         indices = self.match(preds, targets)
         idx = self._get_pred_permutation_idx(indices)
         pred_bboxes = preds[idx]

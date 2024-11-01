@@ -437,7 +437,7 @@ class DETRDataset(Dataset):
 
 class DetrLocDataset(DETRDataset):
 
-    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None, rgb:bool=True) -> None:
+    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None, rgb:bool=False) -> None:
         super().__init__(dir_path, norm, transform, target_transforms)
         self.norm = norm
         self.rgb=rgb
@@ -457,6 +457,33 @@ class DetrLocDataset(DETRDataset):
         if self.transform:
             sample = self.transform(np.array(sample))
         return sample, bboxes
+
+
+class LocDataLoader(DETRDataset):
+    def __init__(self, dir_path: str, max_bboxes:int, norm=True, transform=None, target_transforms=None) -> None:
+        super().__init__(dir_path, norm, transform, target_transforms)
+        self.max_bboxes = max_bboxes
+
+    def to_targets(self, bboxes:torch.Tensor) -> torch.Tensor:
+        targets = torch.zeros(self.max_bboxes, 4)
+        num_bboxes = bboxes.shape[0]
+        if num_bboxes == 0:
+            return targets
+        else:
+            targets[:num_bboxes, :] = bboxes
+            return targets
+
+    def __getitem__(self, index: int):
+        sample_name = self.samples[index]
+        sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        if self.norm:
+            bboxes = self.normalize(torch.tensor(bboxes, dtype=torch.float32), sample.shape[1:])
+        else:
+            bboxes = torch.tensor(bboxes, dtype=torch.float32)
+        targets = self.to_targets(bboxes)
+        if self.transform:
+            sample = self.transform(np.array(sample))
+        return sample, targets
 
 
 class DetrLocDatasetTest(DetrLocDataset):
