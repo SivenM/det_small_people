@@ -1,6 +1,6 @@
 from data_perp import CropDataset
 from coaching import Coach
-from models import VisTransformer
+from models.transformer import VisTransformer
 import argparse
 
 import torch

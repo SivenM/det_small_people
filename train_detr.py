@@ -1,7 +1,7 @@
 import os
 import yaml
 from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
-from models import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc
+from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc
 from coaching import Coach, DetrLocCoach, LocCoach
 import losses
 import utils

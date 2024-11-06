@@ -1,7 +1,7 @@
 import os
 import yaml
 from data_perp import SeqCls
-from models import SeqModel, CCTransformer, CCTransformerV2
+from models.transformer import SeqModel, CCTransformer, CCTransformerV2
 from coaching import Coach, DetrLocCoach
 
 import torch

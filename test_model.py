@@ -1,5 +1,5 @@
 from data_perp import TestCropDataset, DETRDataset, DetrLocDatasetTest
-import models
+from models import transformer, detr_zoo
 import utils
 
 import os
@@ -176,9 +176,9 @@ class TestModel:
         self.model_path = model_path
         self.device = device
         if model_type == 'vit':
-            self.model = models.VisTransformer(model_params['encoder_blocks'])
+            self.model = transformer.VisTransformer(model_params['encoder_blocks'])
         elif model_type == 'detr_loc':
-            self.model = models.DetrLoc(
+            self.model = detr_zoo.DetrLoc(
                     model_params['num_encoder_blocks'],
                     model_params['num_decoder_blocks'],
                     model_params['num_queries'],
@@ -189,7 +189,7 @@ class TestModel:
                     model_params['patch_size']
                     )
         elif model_type == 'detr':
-            self.model = models.DETR(
+            self.model = detr_zoo.DETR(
                     model_params['num_encoder_blocks'],
                     model_params['num_decoder_blocks'],
                     model_params['num_queries'],
