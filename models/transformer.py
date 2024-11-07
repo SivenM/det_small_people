@@ -374,3 +374,12 @@ class CCTDecoderBlockV2(nn.Module):
         out_mlp = self.MLP(out_norm_2)
         out_drop_3 = self.dropout3(out_mlp)
         return query + out_drop_3
+
+
+#######################################################
+#######################################################
+# Deformable modules
+
+
+class DeformableDecoderBlock(nn.Module):
+    pass
