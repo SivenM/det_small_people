@@ -3,8 +3,8 @@ import torch
 from torch import nn
 from torch import Tensor
 import numpy as np
-import layers
-import pos_emb_layers
+from models import layers
+from models import pos_emb_layers
 
 # old realization transformer #
 ###############################

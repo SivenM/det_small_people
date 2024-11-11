@@ -1,7 +1,7 @@
 import os
 import yaml
 from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
-from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc
+from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc
 from coaching import Coach, DetrLocCoach, LocCoach
 import losses
 import utils
@@ -77,7 +77,7 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             norm=norm, 
             transform=sample_transforms
             )
-    elif model_type == 'classic_loc':
+    elif model_type in ['classic_loc', 'classic_seq_loc']:
         sample_transforms = v2.Compose([
         v2.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.)
         ])
@@ -171,7 +171,19 @@ def train(cfg:dict):
             cfg['max_seq']
         )
         loss_fn = torch.nn.L1Loss()
-        
+    
+    elif cfg['model_type'] == 'classic_seq_loc':
+        coach = LocCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'])
+        train_model = CCTransformerLoc(
+        num_bboxes=cfg['max_bboxes'], 
+        emb_dim=cfg['emb_dim'], 
+        num_blocks=cfg['num_encoder_blocks'], 
+        num_conv_layers=cfg['num_conv_layers'], 
+        out_channel_outputs=cfg['out_channel_outputs'], 
+        patch_size=cfg['patch_size'], C=cfg['num_imgs'], 
+        max_seq=cfg['max_seq']
+        )
+        loss_fn = torch.nn.L1Loss()
     else:
         raise "Wrong model type. Only detr or detr_loc"
     

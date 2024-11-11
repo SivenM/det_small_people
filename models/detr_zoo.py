@@ -2,9 +2,9 @@ import torch
 from torch import nn
 from torch import Tensor
 from torchvision.models import resnet50
-import layers
-import pos_emb_layers
-import transformer
+from models import layers
+from models import pos_emb_layers
+from models import transformer
 
 # base mopdels #
 
@@ -139,6 +139,108 @@ class SeqDetrLoc(nn.Module):
         return self.sigma(bboxes) 
 
 
+class CCTransformerLoc(nn.Module):
+    def __init__(
+            self, 
+            num_bboxes,
+            emb_dim, 
+            num_blocks,
+            num_conv_layers,
+            out_channel_outputs,
+            patch_size,
+            C,
+            max_seq,
+            stochastic_depth_rate=0.1
+            ):
+        super().__init__()
+        self.img_encoder = layers.CCTTokenaizer(
+            emb_dim,
+            num_conv_layers,
+            out_channel_outputs,
+            P=patch_size,
+            C=C,
+        )
+        self.pos_emb = pos_emb_layers.LearnablePositionalEmbedding(max_seq, emb_dim)
+        self.backbone = transformer.CCTEncoder(emb_dim, num_blocks, stochastic_depth_rate)
+        self.norm = nn.LayerNorm(emb_dim)
+        self.seq_pool = layers.SeqPool(emb_dim)
+        
+        #loc head
+        self.cx = nn.Linear(emb_dim, num_bboxes)
+        self.cy = nn.Linear(emb_dim, num_bboxes)
+        self.w = nn.Linear(emb_dim, num_bboxes)
+        self.h = nn.Linear(emb_dim, num_bboxes)
+    
+    def forward(self, seq:Tensor):
+        x = self.img_encoder(seq)
+        pos = self.pos_emb(x)
+        x = self.backbone(x, pos)
+        x = self.norm(x)
+        x = self.seq_pool(x)
+        
+        cx = self.cx(x)
+        cy = self.cy(x)
+        w = self.w(x)
+        h = self.h(x)
+        bboxes = torch.stack([cx,cy,w,h])
+        bboxes = bboxes.permute(1,2,0)
+        return bboxes.sigmoid()
+
+torch.mm()
+
+class CCTransformerDet(nn.Module):
+    def __init__(
+            self, 
+            num_bboxes,
+            emb_dim, 
+            num_blocks,
+            num_conv_layers,
+            out_channel_outputs,
+            patch_size,
+            C,
+            max_seq,
+            stochastic_depth_rate=0.1
+            ):
+        super().__init__()
+        self.img_encoder = layers.CCTTokenaizer(
+            emb_dim,
+            num_conv_layers,
+            out_channel_outputs,
+            P=patch_size,
+            C=C,
+        )
+        self.pos_emb = pos_emb_layers.LearnablePositionalEmbedding(max_seq, emb_dim)
+        self.backbone = transformer.CCTEncoder(emb_dim, num_blocks, stochastic_depth_rate)
+        self.norm = nn.LayerNorm(emb_dim)
+        self.seq_pool = layers.SeqPool(emb_dim)
+        
+        #loc head
+        self.cx = nn.Linear(emb_dim, num_bboxes)
+        self.cy = nn.Linear(emb_dim, num_bboxes)
+        self.w = nn.Linear(emb_dim, num_bboxes)
+        self.h = nn.Linear(emb_dim, num_bboxes)
+
+        #cls head
+        self.cls_head = nn.Linear(emb_dim, num_bboxes)
+
+    def forward(self, seq:Tensor):
+        x = self.img_encoder(seq)
+        pos = self.pos_emb(x)
+        x = self.backbone(x, pos)
+        x = self.norm(x)
+        x = self.seq_pool(x)
+        
+        cx = self.cx(x)
+        cy = self.cy(x)
+        w = self.w(x)
+        h = self.h(x)
+        bboxes = torch.stack([cx,cy,w,h])
+        bboxes = bboxes.permute(1,2,0)
+        bboxes = bboxes.sigmoid()
+
+        logits = self.cls_head(x)
+        return {'bbox': bboxes, 'logits': logits} 
+    
 
 ######################################################################
 
