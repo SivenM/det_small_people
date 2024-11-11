@@ -1,8 +1,8 @@
 import os
 import yaml
 from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
-from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc
-from coaching import Coach, DetrLocCoach, LocCoach
+from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet
+from coaching import Coach, DetrLocCoach, LocCoach, SeqDetCoach
 import losses
 import utils
 
@@ -88,6 +88,15 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             max_bboxes=7
             )
         return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    elif model_type == 'classic_seq_det':
+        sample_transforms = v2.Compose([
+            v2.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.)
+        ])
+        dataset = DETRDataset(
+            path, 
+            norm=norm, 
+            transform=sample_transforms
+            )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
     return dataloader
 
@@ -184,6 +193,19 @@ def train(cfg:dict):
         max_seq=cfg['max_seq']
         )
         loss_fn = torch.nn.L1Loss()
+    elif cfg['model_type'] == 'classic_seq_det':
+        coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
+        train_model = CCTransformerDet(
+            num_bboxes=cfg['max_bboxes'], 
+            emb_dim=cfg['emb_dim'], 
+            num_blocks=cfg['num_encoder_blocks'], 
+            num_conv_layers=cfg['num_conv_layers'], 
+            out_channel_outputs=cfg['out_channel_outputs'], 
+            patch_size=cfg['patch_size'], C=cfg['num_imgs'], 
+            max_seq=cfg['max_seq']
+        )
+        matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
+        loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     else:
         raise "Wrong model type. Only detr or detr_loc"
     

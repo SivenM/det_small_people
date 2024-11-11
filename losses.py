@@ -1,7 +1,9 @@
 import torch
+import torch.nn.functional as F
 from torch import nn
 from scipy.optimize import linear_sum_assignment
 from utils import generalized_iou, to_corners
+from pprint import pprint
 
 
 class HungarianMatcher(nn.Module):
@@ -9,18 +11,23 @@ class HungarianMatcher(nn.Module):
     Реализация венгерского алгоритма для вычисления
     соответствия между предсказаниями и истинными значениями
     '''
-    def __init__(self, cost_class:float=1., cost_bbox:float=1., cost_giou:float=1., debug=False) -> None:
+    def __init__(self, cost_class:float=1., cost_bbox:float=1., cost_giou:float=1., conf_type='sigmoid', debug=False, device='cuda') -> None:
         super().__init__()
         self.cost_class = cost_class
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         self.debug = debug
+        self.conf_type = conf_type
+        self.device = device
 
     @torch.no_grad()
     def forward(self, preds:dict, targets:dict):
-        batch_size, num_queries = preds['logits'].shape[:2]
+        batch_size, num_queries = preds['bbox'].shape[:2]
 
-        out_conf = preds['logits'].flatten(0, 1).softmax(-1)
+        if self.conf_type == 'softmax':
+            out_conf = preds['logits'].flatten(0, 1).softmax(-1)
+        elif self.conf_type == 'sigmoid':
+            out_conf = F.sigmoid(preds['logits'].flatten(0, 1))
         out_bbox = preds['bbox'].flatten(0, 1)
 
         target_labels = torch.cat([v["labels"] for v in targets])
@@ -32,34 +39,41 @@ class HungarianMatcher(nn.Module):
         #print(f'target labels: {target_labels.dtype}')
         #print(f'target bbox: {target_bbox.dtype}')
         #print(f'target bbox: {target_bbox.shape}')
-
-        cost_class = -out_conf[:, target_labels]
+        if self.conf_type == 'softmax':
+            cost_class = -out_conf[:, target_labels]
+        elif self.conf_type == 'sigmoid':
+            alpha = 0.25
+            gamma = 2.0
+            neg_cost_class = (1-alpha) * (out_conf ** gamma) * (-(1 - out_conf + 1e-8).log())
+            pos_cost_class = alpha * ((1 - out_conf) ** gamma) * (- (out_conf + 1e-8).log())
+            cost_class = pos_cost_class[target_labels] - neg_cost_class[target_labels]
         cost_bbox = torch.cdist(out_bbox, target_bbox, p=1)
         cost_giou = -generalized_iou(to_corners(out_bbox), to_corners(target_bbox))
         #print(f'cost iou: {cost_giou}')
 
         cost = self.cost_bbox*cost_bbox + self.cost_class*cost_class + self.cost_giou*cost_giou
         cost = cost.view(batch_size, num_queries, -1).cpu()
-        if self.debug:
-            print(f'cost_class: {cost_class}')
-            print(f'cost_bbox: {cost_bbox}')
-        #print(f'cost: {cost.dtype}')
-        #print(f'cost: {cost}')
-
         sizes = [len(t['bbox']) for t in targets]
-        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(cost.split(sizes, -1))]
-        #indices = []
-        #for i, c in enumerate(cost.split(sizes, -1)):
-        #    if self.debug:
-        #        print(c[i])
-        #        print(c[i].shape)
-        #        print(c[i].dtype)
-        #        ind = linear_sum_assignment(c[i])
-        #        print('====')
-        #    else:
-        #        ind = linear_sum_assignment(c[i])
-        #    indices.append(ind)
-        indices_torch = [(torch.as_tensor(i, dtype=torch.int64, device='cuda'), torch.as_tensor(j, dtype=torch.int64, device='cuda')) for i, j in indices]
+        if self.debug:
+            print(f'cost_class: {cost_class.shape}')
+            print(f'cost_bbox: {cost_bbox.shape}')
+            print(f'cost: {cost.dtype}')
+            print(f'cost: {cost.shape}')
+            pprint(sizes)
+            indices = []
+            for i, c in enumerate(cost.split(sizes, -1)):
+                if self.debug:
+                    print(c[i])
+                    print(c[i].shape)
+                    print(c[i].dtype)
+                    ind = linear_sum_assignment(c[i])
+                    print('====')
+                else:
+                    ind = linear_sum_assignment(c[i])
+                indices.append(ind)
+        else:
+            indices = [linear_sum_assignment(c[i]) for i, c in enumerate(cost.split(sizes, -1))]
+        indices_torch = [(torch.as_tensor(i, dtype=torch.int64, device=self.device), torch.as_tensor(j, dtype=torch.int64, device=self.device)) for i, j in indices]
         return indices_torch
     
 
@@ -71,6 +85,7 @@ class DetrLoss(nn.Module):
                  cls_scale:float=0.1, 
                  bbox_scale:float=5, 
                  giou_scale:float=2,
+                 conf_type='sigmoid',
                  debug:bool=False) -> None:
         super().__init__()
         self.num_classes = num_classes
@@ -80,8 +95,9 @@ class DetrLoss(nn.Module):
         self.giou_scale = giou_scale
         ce_weights = torch.ones(2)
         ce_weights[-1] = self.cls_scale
+        self.conf_type = conf_type,
         self.register_buffer('ce_weights', ce_weights.to('cuda'))
-        self.biba = debug
+        self.debug = debug
 
     def _get_pred_permutation_idx(self, indices):
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
@@ -94,16 +110,23 @@ class DetrLoss(nn.Module):
         return batch_idx, target_idx
 
     def loss_cls(self, preds, targets, indices, num_bboxes):
+        if self.debug:
+            print(f'{self.conf_type=}')
+            print(f'{type(self.conf_type)=}')
         idx = self._get_pred_permutation_idx(indices)
         logits = preds['logits']
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
-        target_classes = torch.full(logits.shape[:2], self.num_classes,
-                                    dtype=torch.long, device=logits.device)
-        target_classes[idx] = target_classes_o
-        target_classes = target_classes 
-        ce_loss = torch.nn.functional.cross_entropy(logits.transpose(1, 2), target_classes, self.ce_weights)
-        #if self.biba:
-        #    print(f'cls_loss: {ce_loss}')
+        if 'softmax' in self.conf_type:
+            target_classes = torch.full(logits.shape[:2], self.num_classes,
+                                        dtype=torch.long, device=logits.device)
+            target_classes[idx] = target_classes_o
+            target_classes = target_classes 
+            ce_loss = torch.nn.functional.cross_entropy(logits.transpose(1, 2), target_classes, self.ce_weights)
+        elif 'sigmoid' in self.conf_type:
+            target_classes = torch.full(logits.shape[:2], 0,
+                                        dtype=torch.long, device=logits.device)
+            target_classes[idx] = target_classes_o
+            ce_loss = torch.nn.functional.binary_cross_entropy(torch.sigmoid(logits), target_classes.to(torch.float32))
         return ce_loss
     
     def loss_bbox(self, preds, targets, indices, num_bboxes):
@@ -115,19 +138,16 @@ class DetrLoss(nn.Module):
         #print(f'pred shape: {bboxes.shape}')
         #print(f'target shape: {target_bboxes.shape}')
 
-        loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='mean')
+        loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='none')
         loss_giou = 1 - torch.diag(generalized_iou(
             to_corners(bboxes),
             to_corners(target_bboxes),
         ))
-        #if self.biba:
-        #print(f'l1_loss: {loss_l1}')
-        #print(f'giou_loss: {loss_giou}')
-
         loss_l1 = loss_l1.sum() / num_bboxes
         loss_giou = loss_giou.sum() / num_bboxes
-        print(f'bbox loss: {loss_l1}')
-        print(f'bbox loss iou: {loss_giou}')
+        if self.debug:
+            print(f'bbox loss: {loss_l1}')
+            print(f'bbox loss iou: {loss_giou}')
 
         return loss_l1 * self.bbox_scale + loss_giou * self.giou_scale
     
@@ -136,8 +156,9 @@ class DetrLoss(nn.Module):
         num_bboxes = sum(len(t['labels']) for t in targets)
         c_loss = self.loss_cls(preds, targets, indices, num_bboxes)
         b_loss = self.loss_bbox(preds, targets, indices, num_bboxes)
-        print(f'cls loss: {c_loss}')
-        print(f'bbox loss: {b_loss}')
+        if self.debug:
+            print(f'cls loss: {c_loss}')
+            print(f'bbox loss: {b_loss}')
 
         losses = c_loss + b_loss
         return losses

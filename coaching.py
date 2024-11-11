@@ -200,12 +200,12 @@ class DetrLocCoach(Coach):
         )
 
         for batch, (sample, label) in progress_bar:
-            if torch.cat([v for v in label]).shape[0] == 0:
-                continue
-            self.optimizer.zero_grad()
+            #if torch.cat([v for v in label]).shape[0] == 0:
+            #    continue
             sample, label = sample.to(self.device), self._to_cuda(label)
             pred = self.model(sample)
             loss = self.loss_fn(pred, label)
+            self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             #print(loss.item())
@@ -215,7 +215,8 @@ class DetrLocCoach(Coach):
                     'train_loss': t_loss / (batch + 1)
                 }
             )
-        return t_loss / (batch + 1), t_acc
+        t_loss = t_loss / len(data)
+        return t_loss, t_acc
     
     def val_step(self, epoch, data) -> Tuple[float, float]:
         self.model.eval()
@@ -241,7 +242,8 @@ class DetrLocCoach(Coach):
                         'val_loss': v_loss / (batch + 1),
                     }
                 )
-        return v_loss / (batch + 1), v_acc
+        v_loss = v_loss / len(data)
+        return v_loss, v_acc
 
 
 
@@ -313,7 +315,78 @@ class LocCoach(Coach):
         return v_loss, v_acc
 
 
-class ObjCoach:
+class SeqDetCoach(Coach):
+    def __init__(
+            self, name: str, save_dir: str = None, metric: str = 'multi_acc', 
+            logger: bool = True, checkpoint: bool = True, tboard: bool = False,
+              device='cuda', debug: bool = False, progress_bar=True) -> None:
+        super().__init__(name, save_dir, metric, logger, checkpoint, tboard, device, debug)
+        if progress_bar:
+            self.disable = False
+        else:
+            self.disable = True
+    def _to_cuda(self, targets:list) -> list:
+        out = []
+        for target in targets:
+            target['bbox'] = target['bbox'].to('cuda')
+            target['labels'] = target['labels'].to('cuda')
+            out.append(target)
+        return out
 
-    def __init__(self) -> None:
-        pass
+    def train_step(self, epoch, data) -> Tuple[float, float]:
+        self.model.train()
+        self.loss_fn.train()
+        t_loss, t_acc = 0., 0.
+
+        progress_bar = tqdm(
+            enumerate(data),
+            desc=f"train epoch {epoch}",
+            total=(len(data)),
+            disable=self.disable
+        )
+
+        for batch, (sample, label) in progress_bar:
+            #if torch.cat([v for v in label]).shape[0] == 0:
+            #    continue
+            sample, label = sample.to(self.device), self._to_cuda(label)
+            pred = self.model(sample)
+            loss = self.loss_fn(pred, label)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            #print(loss.item())
+            t_loss += loss.item()
+            progress_bar.set_postfix(
+                {
+                    'train_loss': t_loss / (batch + 1)
+                }
+            )
+        t_loss = t_loss / len(data)
+        return t_loss, t_acc
+    
+    def val_step(self, epoch, data) -> Tuple[float, float]:
+        self.model.eval()
+        self.loss_fn.eval()
+        v_loss, v_acc = 0, 0
+        progress_bar = tqdm(
+            enumerate(data),
+            desc=f"val epoch {epoch}",
+            total=(len(data)),
+            disable=self.disable
+        )
+
+        with torch.no_grad():
+            for batch, (sample, label) in progress_bar:
+                #if torch.cat([v for v in label]).shape[0]  == 0:
+                #    continue
+                sample, label= sample.to(self.device), self._to_cuda(label)
+                pred = self.model(sample)
+                loss = self.loss_fn(pred, label)
+                v_loss += loss.item()
+                progress_bar.set_postfix(
+                    {
+                        'val_loss': v_loss / (batch + 1),
+                    }
+                )
+        v_loss = v_loss / len(data)
+        return v_loss, v_acc

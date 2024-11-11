@@ -186,7 +186,6 @@ class CCTransformerLoc(nn.Module):
         bboxes = bboxes.permute(1,2,0)
         return bboxes.sigmoid()
 
-torch.mm()
 
 class CCTransformerDet(nn.Module):
     def __init__(
