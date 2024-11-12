@@ -381,5 +381,65 @@ class CCTDecoderBlockV2(nn.Module):
 # Deformable modules
 
 
+class DeformableEncoderBlock(nn.Module):
+
+    def __init__(self, dpr, emb_dim=256, n_lvls=4, n_heads=8, n_points=4, dropout_prob=0.1) -> None:
+        super().__init__()
+        self.self_att = layers.MultiScaleDeformableAttention(emb_dim, n_lvls, n_heads, n_points)
+        self.dropout_1 = nn.Dropout(dropout_prob)
+        self.norm1 = nn.LayerNorm(emb_dim)
+
+        self.ffn = layers.MLP(emb_dim)
+        self.norm2 = nn.LayerNorm(emb_dim)
+        self.dropout_2 = layers.StochasticDepth(dpr)
+
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+
+    def forward(self, features, pos, reference_points, spatial_shapes, lvl_start_idx):
+        q = self.with_pos_embed(features, pos)
+        features_2 = self.self_att(q, reference_points, features, spatial_shapes, lvl_start_idx)
+        features = features + self.dropout_1(features_2)
+        features = self.norm1(features)
+        features_2 = self.ffn(features)
+        features = features + self.dropout_2(features_2)
+        features = self.norm2(features)
+        return features
+    
+
+class DeformableEncoder(nn.Module):
+    def __init__(self, emb_dim:int=256, num_blocks:int=1, stochastic_depth_rate:float=0.1):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.num_blocks = num_blocks
+        self.stochastic_depth_rate = stochastic_depth_rate
+        dpr = [x for x in np.linspace(0, stochastic_depth_rate, num_blocks)]
+        modules = []
+        for i in range(num_blocks):
+            modules.append(DeformableEncoderBlock(dpr[i], emb_dim))
+        self.t_blocks = nn.Sequential(*modules)
+
+    @staticmethod
+    def get_reference_points(spatial_shapes, device, valid_ratios=None):
+        reference_points_list = []
+        for lvl, (H_, W_) in enumerate(spatial_shapes):
+
+            ref_y, ref_x = torch.meshgrid(torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
+                                          torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device))
+            #ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
+            #ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
+            ref = torch.stack((ref_x, ref_y), -1)
+            reference_points_list.append(ref)
+        reference_points = torch.cat(reference_points_list, 1)
+        #reference_points = reference_points[:, :, None] * valid_ratios[:, None]
+        return reference_points
+
+    def forward(self, x:Tensor, spatial_shapes:Tensor, lvl_start_idx:Tensor, pos=None):
+        reference_points = self.get_reference_points(spatial_shapes, x.device)
+        for block in self.t_blocks:
+            x = block(x, pos, reference_points, spatial_shapes, lvl_start_idx)
+        return x
+
+
 class DeformableDecoderBlock(nn.Module):
     pass
