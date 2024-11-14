@@ -1,4 +1,4 @@
-from data_perp import TestCropDataset, DETRDataset, DetrLocDatasetTest
+from data_perp import TestCropDataset, DETRDataset, DetrLocDatasetTest, DETRDatasetTest
 from models import transformer, detr_zoo
 import utils
 
@@ -166,8 +166,64 @@ class DetrLocTester:
             #)
 
 
-class DetrTester:
-    pass
+class DetTester:
+    
+    def __init__(self, dataset:Dataset, save_dir:str=None, vis:bool=True) -> None:
+        self.dataset = dataset
+        self.vis = vis
+        self.save_dir = save_dir
+        utils.mkdir(self.save_dir)
+        self.results_dir = os.path.join(save_dir, 'results')
+        utils.mkdir(self.results_dir)
+        self.pred_logger = CSVLogger(save_dir)
+
+    def _denorm(self, t_bboxes:Tensor, img_size:torch.Size) -> Tensor:
+        if t_bboxes.shape[0] > 0:
+            t_bboxes[:, 0] *= img_size[1]
+            t_bboxes[:, 1] *= img_size[0]
+            t_bboxes[:, 2] *= img_size[1]
+            t_bboxes[:, 3] *= img_size[0]
+        return t_bboxes
+
+    def test_model(self, model):
+        #for i, (sample, sample_np, gt, gt_norm, meta) in tqdm(enumerate(self.dataset), desc='testing'):
+        print(len(self.dataset))
+        sample_np, t_sample, gt_bboxes, t_bboxes_norm, t_labels, meta = self.dataset[190]
+        pred = model(t_sample.unsqueeze(0))
+        assert type(pred) == dict, f'pred must be dist with keys "bbox" and "logits"'
+        print(meta['size'])
+        bboxes = self._denorm(pred['bbox'].clone(), meta['size'])
+        
+        print(f'gt norm:')
+        for box in t_bboxes_norm:
+            print(box)
+        print(f'\npreds:')
+        for box in pred['bbox']:
+            print(box)
+        
+        print(f'\ngt:')
+        for box in gt_bboxes:
+            print(box)
+
+        print(f'\ndenorm preds:')
+        for box in bboxes[0]:
+            print(box.to(torch.long))
+
+        print(bboxes.shape)
+        color_gt = (255,0,0)    
+        color_denorm = (0,255,0)    
+        img = sample_np[-1].copy()
+        img_gt = np.stack([img,img,img], axis=-1)
+        img_dn = np.stack([img,img,img], axis=-1)
+        bboxes_corner = utils.to_corners(bboxes) 
+        gt_corners = utils.to_corners(torch.tensor(gt_bboxes))
+        for box in gt_corners:
+            img_gt = cv2.rectangle(img_gt, (int(box[2]), int(box[3])), (int(box[0]), int(box[1])),  color_gt)
+        for box in bboxes_corner[0]:
+            img_dn = cv2.rectangle(img_dn, (int(box[2]), int(box[3])), (int(box[0]), int(box[1])),  color_denorm)
+        out_img = np.concatenate([img_gt, img_dn], axis=0)
+        plt.imshow(out_img)
+        plt.show()
 
 
 class TestModel:
@@ -199,12 +255,22 @@ class TestModel:
                     model_params['num_imgs'],
                     model_params['patch_size']
                     )
+        elif model_type == 'seq_det':
+            self.model = detr_zoo.CCTransformerDet(
+                num_bboxes=model_params['max_bboxes'], 
+                emb_dim=model_params['emb_dim'], 
+                num_blocks=model_params['num_encoder_blocks'], 
+                num_conv_layers=model_params['num_conv_layers'], 
+                out_channel_outputs=model_params['out_channel_outputs'], 
+                patch_size=model_params['patch_size'], C=model_params['num_imgs'], 
+                max_seq=model_params['max_seq']
+        )
         else:
             raise 'Wrong model type. Only: vit, detr, detr_loc'
         self._load_model()
 
     def _load_model(self):
-        self.model.load_state_dict(torch.load(self.model_path))
+        self.model.load_state_dict(torch.load(self.model_path), strict=False)
         self.model.to(self.device)
         self.model.eval()
 
@@ -243,6 +309,15 @@ def load_dataset(dataset_path:str, model_type:str):
             norm=True, 
             transform=sample_transforms
             )
+    elif model_type == 'seq_det':
+        sample_transforms = v2.Compose([
+            v2.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.)
+        ])
+        dataset = DETRDatasetTest(
+            dataset_path, 
+            norm=True, 
+            transform=sample_transforms
+            )
     else:
         raise 'Wrong model type. Only: vit, detr, detr_loc'
     return dataset
@@ -255,11 +330,14 @@ def create_tester(dataset:Dataset, model_type:str, save_dir:str):
         return DetrLocTester(dataset, save_dir)
     elif model_type == 'detr':
         pass
+    elif model_type == 'seq_det':
+        return  DetTester(dataset, save_dir)
     else:
         raise 'Wrong model type. Only: vit, detr, detr_loc'
 
 
 def main(config:dict) -> None:
+    print(f'model type: {config['model_type']}')
     test_model = TestModel(config['model_path'], config['model_type'], config['model_params'])
     test_dataset = load_dataset(config['dataset'], config['model_type'])
     tester = create_tester(test_dataset, config['model_type'], config['save_dir'])

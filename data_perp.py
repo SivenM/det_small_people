@@ -486,6 +486,10 @@ class LocDataLoader(DETRDataset):
         return sample, targets
 
 
+#### Dataloaders for tests ##########
+###############################################################################################################
+
+
 class DetrLocDatasetTest(DetrLocDataset):
 
     def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None) -> None:
@@ -499,6 +503,34 @@ class DetrLocDatasetTest(DetrLocDataset):
         if self.transform:
             t_sample = self.transform(np.array(sample))
         return t_sample, sample, bboxes, bboxes_norm, {'path': sample_name, 'size': sample.shape[1:]}
+
+
+class DETRDatasetTest(DETRDataset):
+
+    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None, rgb: bool = False) -> None:
+        super().__init__(dir_path, norm, transform, target_transforms, rgb)
+
+    def _create_targets(self, bboxes:list, img_size:tuple) -> Tensor:
+        t_bboxes = torch.tensor(bboxes, dtype=torch.float32)
+        t_bboxes = self.normalize(t_bboxes, img_size)
+        t_labels = torch.ones(len(bboxes), dtype=torch.long)
+        if self.target_transforms:
+            t_bboxes = self.target_transforms(t_bboxes)
+        return t_bboxes, t_labels
+
+    def __getitem__(self, index:int):
+        sample_name = self.samples[index]
+        sample, bboxes = self._from_pickle(os.path.join(self.dir_path, sample_name))
+        if sample.shape[-1] == 1:
+            img_size = sample.shape[:-1]
+        else:
+            img_size = sample.shape[1:]
+        t_bboxes, t_labels = self._create_targets(bboxes, img_size)
+        if self.transform:
+            t_sample = self.transform(np.array(sample))
+        return sample, t_sample, bboxes, t_bboxes, t_labels, {'path': sample_name, 'size': sample.shape[1:]}
+
+###############################################################################################################
 
 
 class SeqCls(Dataset):
