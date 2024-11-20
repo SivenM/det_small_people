@@ -97,6 +97,17 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             norm=norm, 
             transform=sample_transforms
             )
+    elif model_type == 'seq_det_one_frame':
+        sample_transforms = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+        ])
+        dataset = DETRDataset(
+            path, 
+            norm=True, 
+            transform=sample_transforms
+            )
+    
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
     return dataloader
 
@@ -193,7 +204,7 @@ def train(cfg:dict):
         max_seq=cfg['max_seq']
         )
         loss_fn = torch.nn.L1Loss()
-    elif cfg['model_type'] == 'classic_seq_det':
+    elif cfg['model_type'] in ['classic_seq_det', 'seq_det_one_frame']:
         coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
         train_model = CCTransformerDet(
             num_bboxes=cfg['max_bboxes'], 

@@ -178,17 +178,17 @@ class DetTester:
         self.pred_logger = CSVLogger(save_dir)
 
     def _denorm(self, t_bboxes:Tensor, img_size:torch.Size) -> Tensor:
-        if t_bboxes.shape[0] > 0:
-            t_bboxes[:, 0] *= img_size[1]
-            t_bboxes[:, 1] *= img_size[0]
-            t_bboxes[:, 2] *= img_size[1]
-            t_bboxes[:, 3] *= img_size[0]
+        #if t_bboxes.shape[0] > 0:
+        t_bboxes[:, :, 0] *= img_size[1]
+        t_bboxes[:, :, 1] *= img_size[0]
+        t_bboxes[:, :, 2] *= img_size[1]
+        t_bboxes[:, :, 3] *= img_size[0]
         return t_bboxes
 
     def test_model(self, model):
         #for i, (sample, sample_np, gt, gt_norm, meta) in tqdm(enumerate(self.dataset), desc='testing'):
         print(len(self.dataset))
-        sample_np, t_sample, gt_bboxes, t_bboxes_norm, t_labels, meta = self.dataset[190]
+        sample_np, t_sample, gt_bboxes, t_bboxes_norm, t_labels, meta = self.dataset[1]
         pred = model(t_sample.unsqueeze(0))
         assert type(pred) == dict, f'pred must be dist with keys "bbox" and "logits"'
         print(meta['size'])
