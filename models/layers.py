@@ -10,6 +10,47 @@ from torch import Tensor
 import torch.nn.functional as F
 
 
+class SeparableConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1, dilation=1, bias=True):
+        super(SeparableConv2d, self).__init__()
+        
+        # Depthwise convolution
+        self.depthwise = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=in_channels,
+            bias=False
+        )
+        
+        # Pointwise convolution (1x1 convolution)
+        self.pointwise = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dilation=1,
+            groups=1,
+            bias=bias
+        )
+        self.norm1 = nn.BatchNorm2d(in_channels)
+        self.norm2 = nn.BatchNorm2d(out_channels)
+        self.relu1 = nn.ReLU()
+
+    def forward(self, x):
+        x = self.depthwise(x)
+        x = self.norm1(x)
+        x = self.relu1(x)
+
+        x = self.pointwise(x)
+        x = self.norm2(x)
+        return x
+
+
 class PatchEncoderLinear(nn.Module):
     def __init__(self, num_patches, token_dim, emb_dim):
         super().__init__()
@@ -40,7 +81,7 @@ class CCTTokenaizer(nn.Module):
         inputs = C
         for i in range(num_hidden_layers):
             modules.append(
-                nn.Conv2d(
+                SeparableConv2d(
                     inputs, 
                     num_output_channels[i],
                     kernel_size=3,
@@ -53,8 +94,8 @@ class CCTTokenaizer(nn.Module):
             nn.Conv2d(
                 inputs, 
                 emb_dim,
-                kernel_size=P,
-                stride=P
+                kernel_size=1,
+                #stride=2
                 ))
         modules.append(nn.ReLU())
         self.conv_model = nn.Sequential(*modules)
@@ -62,6 +103,7 @@ class CCTTokenaizer(nn.Module):
     def forward(self, images:Tensor) -> Tensor:
         batch = images.shape[0]
         features = self.conv_model(images)
+        #print(features.shape)
         f_size = features.shape[2:]
         num_patches = f_size[-1] * f_size[-2]
         patches = features.reshape(batch, num_patches, self.emb_dim)
