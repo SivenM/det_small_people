@@ -16,13 +16,19 @@ from loguru import logger
 
 class Loader:
 
-    def __init__(self, img_dir, ann_dir) -> None:
+    def __init__(self, img_dir, ann_dir, mode) -> None:
         self.img_dir = img_dir
         self.ann_dir = ann_dir
-        self.ann_names = np.arange(1, len(os.listdir(self.ann_dir))-3)
+        if mode == 'seq':
+            self.ann_names = np.arange(1, len(os.listdir(self.ann_dir))-3)
+        elif mode == 'classic': #only frame_rate == 1 !
+            self.ann_names = os.listdir(self.ann_dir)
 
     def load_img(self, frame_num:int) -> ndarray:
-        img_name = str(frame_num-1) + '.jpg'
+        if self.mode == 'seq':
+            img_name = str(frame_num-1) + '.jpg'
+        else:
+            img_name = str(frame_num) + '.jpg'
         img_path = os.path.join(self.img_dir, img_name)
         img =  cv2.imread(img_path)
         assert type(img) == ndarray, f'frame num: {frame_num}\npath: {img_path}'
@@ -189,7 +195,7 @@ class SampleGenerator(Loader):
     """
     Генерирует сэмплы для обучения DETR
     """
-    def __init__(self, img_dir:str, ann_dir:str, frame_rate:int=10, indent:int=0) -> None:
+    def __init__(self, img_dir:str, ann_dir:str, frame_rate:int=10, indent:int=0, mode='seq') -> None:
         """
         img_dir: путь до директории изображений
         ann_dir: путь до директории аннотации
@@ -197,13 +203,17 @@ class SampleGenerator(Loader):
         indent: отступ влево привзятии кадров из  ieos датасета
         от 0 до frame_rate 
         """
-        super().__init__(img_dir, ann_dir)
+        super().__init__(img_dir, ann_dir, mode)
         self.frame_rate = frame_rate
         self.indent = indent
         self.dataset_name = img_dir.split('/')[-2]
+        self.mode = mode
 
     def get_ann(self, idx:int):
-        ann_name = str(self.ann_names[idx]) + '.json'
+        if self.mode == 'seq':
+            ann_name = str(self.ann_names[idx]) + '.json'
+        elif self.mode == 'classic':
+            ann_name = self.ann_names[idx]
         path = os.path.join(self.ann_dir, ann_name)
         ann = self.load_ann(path)
         return ann
@@ -227,7 +237,11 @@ class SampleGenerator(Loader):
             imgs = self.load_imgs_seq(int(start_ann['name']))
             targets = self.to_targets(end_ann)
         else:
-            imgs = self.load_img(int(start_ann['name']))
+            if self.mode == 'classic':
+                img_idx = int(start_ann['name'].split('.')[0])
+            else:
+                img_idx = int(start_ann['name'])
+            imgs = self.load_img(img_idx)
             targets = self.to_targets(start_ann)
         return (imgs, targets)
         

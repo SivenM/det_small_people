@@ -81,13 +81,14 @@ class CCTTokenaizer(nn.Module):
         inputs = C
         for i in range(num_hidden_layers):
             modules.append(
-                SeparableConv2d(
+                nn.Conv2d(
                     inputs, 
                     num_output_channels[i],
                     kernel_size=3,
                     padding=1
                     ))
             modules.append(nn.ReLU())
+            modules.append(nn.GroupNorm(8, num_output_channels[i]))
             modules.append(nn.MaxPool2d(2))
             inputs = num_output_channels[i]
         modules.append(

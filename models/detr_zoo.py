@@ -222,7 +222,7 @@ class CCTransformerDet(nn.Module):
         #cls head
         self.cls_head = nn.Linear(emb_dim, num_bboxes)
 
-    def forward(self, seq:Tensor):
+    def forward(self, seq:Tensor): # (bs, 10, 480, 640)
         x = self.img_encoder(seq)
         pos = self.pos_emb(x)
         x = self.backbone(x, pos)

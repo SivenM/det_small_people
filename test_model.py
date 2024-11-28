@@ -188,11 +188,11 @@ class DetTester:
     def test_model(self, model):
         #for i, (sample, sample_np, gt, gt_norm, meta) in tqdm(enumerate(self.dataset), desc='testing'):
         print(len(self.dataset))
-        sample_np, t_sample, gt_bboxes, t_bboxes_norm, t_labels, meta = self.dataset[1]
+        sample_np, t_sample, gt_bboxes, t_bboxes_norm, t_labels, meta = self.dataset[120]
         pred = model(t_sample.unsqueeze(0))
         assert type(pred) == dict, f'pred must be dist with keys "bbox" and "logits"'
         print(meta['size'])
-        bboxes = self._denorm(pred['bbox'].clone(), meta['size'])
+        bboxes = self._denorm(pred['bbox'].clone(), (480, 640))
         
         print(f'gt norm:')
         for box in t_bboxes_norm:
@@ -200,6 +200,7 @@ class DetTester:
         print(f'\npreds:')
         for box in pred['bbox']:
             print(box)
+        print(f'pred conf: {pred['logits'].sigmoid()}')
         
         print(f'\ngt:')
         for box in gt_bboxes:
@@ -211,8 +212,11 @@ class DetTester:
 
         print(bboxes.shape)
         color_gt = (255,0,0)    
-        color_denorm = (0,255,0)    
-        img = sample_np[-1].copy()
+        color_denorm = (0,255,0)
+        if sample_np.shape[-1] == 1:
+            img = sample_np[:,:,0]
+        else:
+            img = sample_np[-1].copy()
         img_gt = np.stack([img,img,img], axis=-1)
         img_dn = np.stack([img,img,img], axis=-1)
         bboxes_corner = utils.to_corners(bboxes) 
@@ -255,7 +259,7 @@ class TestModel:
                     model_params['num_imgs'],
                     model_params['patch_size']
                     )
-        elif model_type == 'seq_det':
+        elif model_type == 'seq_det' or model_type == 'seq_det_one_frame':
             self.model = detr_zoo.CCTransformerDet(
                 num_bboxes=model_params['max_bboxes'], 
                 emb_dim=model_params['emb_dim'], 
@@ -318,6 +322,16 @@ def load_dataset(dataset_path:str, model_type:str):
             norm=True, 
             transform=sample_transforms
             )
+    elif model_type == 'seq_det_one_frame':
+        sample_transforms = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+        ])
+        dataset = DETRDatasetTest(
+            dataset_path, 
+            norm=True, 
+            transform=sample_transforms
+            )
     else:
         raise 'Wrong model type. Only: vit, detr, detr_loc'
     return dataset
@@ -330,7 +344,7 @@ def create_tester(dataset:Dataset, model_type:str, save_dir:str):
         return DetrLocTester(dataset, save_dir)
     elif model_type == 'detr':
         pass
-    elif model_type == 'seq_det':
+    elif model_type == 'seq_det' or model_type == 'seq_det_one_frame':
         return  DetTester(dataset, save_dir)
     else:
         raise 'Wrong model type. Only: vit, detr, detr_loc'
