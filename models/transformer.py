@@ -5,6 +5,7 @@ from torch import Tensor
 import numpy as np
 from models import layers
 from models import pos_emb_layers
+from einops import rearrange
 
 # old realization transformer #
 ###############################
@@ -443,3 +444,94 @@ class DeformableEncoder(nn.Module):
 
 class DeformableDecoderBlock(nn.Module):
     pass
+
+
+class TimeSformerBlock(nn.Module):
+    def __init__(self, 
+                dpr,
+                emb_dim:int=256,
+                num_heads:int=8,
+                hidden_dim:int=1024,
+                dropout_brob:float=0.1,
+                seed_device='cuda'
+                ):
+        super().__init__()
+        self.spatial_norm = nn.LayerNorm(emb_dim)
+        self.spatial_attention = layers.MultiHeadAttention(emb_dim, num_heads)
+        self.drop1 = nn.Dropout(dropout_brob)
+
+        self.temporal_norm = nn.LayerNorm(emb_dim)
+        self.temporal_attention = layers.MultiHeadAttention(emb_dim, num_heads)
+        self.temporal_fc = nn.Linear(emb_dim, emb_dim)
+        self.drop2 = nn.Dropout(dropout_brob)
+
+        self.ffn = layers.MLP(emb_dim, hidden_dim)
+        self.norm_ffn = nn.LayerNorm(emb_dim)
+        self.drop3 = layers.StochasticDepth(dpr, seed_device)
+
+    def forward(self, x:Tensor, B, T, W):
+        num_patches = x.size(1) // T
+        H = num_patches // W
+
+        xt = rearrange(x, 'b (h w t) m -> (b h w) t m', b=B, h=H, w=W, t=T)
+        xt = self.temporal_norm(xt)
+        xt = self.drop1(self.temporal_attention(xt,xt,xt))
+        xt = rearrange(xt, '(b h w) t m -> b (h w t) m', b=B, h=H, w=W, t=T)
+        xt = self.temporal_fc(xt)
+
+        xs = rearrange(xt, 'b (h w t) m -> (b t) (h w) m', b=B, h=H, w=W, t=T)
+        xs = self.spatial_norm(xs)
+        xs = self.drop2(self.spatial_attention(xs, xs, xs))
+        xs = rearrange(xs, '(b t) (h w) m -> b (h w t) m', b=B, h=H, w=W, t=T)
+
+        x = xt + xs
+        x = x + self.drop3(self.ffn(self.norm_ffn(x)))
+        return x
+    
+
+class TimeSformer(nn.Module):
+    def __init__(self, 
+                num_blocks:int=5,
+                emb_dim:int=256,
+                patch_size:int=16,
+                #num_output_channels:list=[64, 128],
+                num_patches:int=1200,
+                num_frames:int=10,
+                num_heads:int=8,
+                hidden_dim:int=1024,
+                dropout_brob:float=0.1,
+                stochastic_depth_rate:float=0.1,
+                seed_device='cuda'
+                ):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.num_blocks = num_blocks
+        self.num_frames = num_frames
+        self.stochastic_depth_rate = stochastic_depth_rate
+        #self.patch_embed = layers.PatchEncoderSeqDeep(emb_dim, num_output_channels)
+        self.patch_embed = layers.PatchEncoderSeq(emb_dim, patch_size)
+        self.pos_embed = torch.nn.Parameter(torch.zeros(1, num_patches, emb_dim))
+        self.time_embed = torch.nn.Parameter(torch.zeros(1, num_frames, emb_dim))
+        self.drop_pos = nn.Dropout(dropout_brob)
+        self.drop_time = nn.Dropout(dropout_brob)
+        self.norm = nn.LayerNorm(emb_dim)
+
+        dpr = [x for x in np.linspace(0, stochastic_depth_rate, num_blocks)]
+        modules = []
+        for i in range(num_blocks):
+            modules.append(TimeSformerBlock(dpr[i], emb_dim, num_heads, hidden_dim, dropout_brob, seed_device))
+        self.t_blocks = nn.Sequential(*modules)
+
+    def forward(self, frame_seq:Tensor):
+        batch_size = frame_seq.shape[0]
+        x, width = self.patch_embed(frame_seq)
+        x = x + self.pos_embed
+        x = self.drop_pos(x)
+        x = rearrange(x, '(b t) n m -> (b n) t m',b=batch_size,t=self.num_frames)
+        x = x + self.time_embed
+        x = self.drop_time(x)
+        x = rearrange(x, '(b n) t m -> b (n t) m',b=batch_size,t=self.num_frames)
+        for block in self.t_blocks:
+            x = block(x,batch_size, self.num_frames, width)
+        x = self.norm(x)
+        return x

@@ -1,7 +1,7 @@
 import os
 import yaml
 from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
-from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet
+from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet, TimeSformerDet
 from coaching import Coach, DetrLocCoach, LocCoach, SeqDetCoach
 import losses
 import utils
@@ -107,7 +107,16 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             norm=True, 
             transform=sample_transforms
             )
-    
+    elif model_type == 'timesformer':
+        sample_transforms = v2.Compose([
+            v2.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.)
+        ])
+        dataset = DETRDataset(
+            path, 
+            norm=norm, 
+            transform=sample_transforms,
+            mode='time',
+            )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
     return dataloader
 
@@ -217,6 +226,20 @@ def train(cfg:dict):
         )
         matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
+    elif cfg['model_type'] == 'timesformer':
+        coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
+        train_model = TimeSformerDet(
+            num_bboxes=cfg['max_bboxes'], 
+            emb_dim=cfg['emb_dim'], 
+            num_blocks=cfg['num_encoder_blocks'], 
+            patch_size=cfg['patch_size'], 
+            num_patches=cfg['num_patches'],
+            num_frames=cfg['num_imgs'], 
+            num_heads=4,
+        )
+        matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
+        loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
+    
     else:
         raise "Wrong model type. Only detr or detr_loc"
     

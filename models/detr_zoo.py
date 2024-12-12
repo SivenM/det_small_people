@@ -241,8 +241,62 @@ class CCTransformerDet(nn.Module):
         return {'bbox': bboxes, 'logits': logits} 
     
 
-######################################################################
+class TimeSformerDet(nn.Module):
+    def __init__(self,
+                num_bboxes:int=7,
+                emb_dim:int=256,
+                num_blocks:int=5,
+                patch_size:int=16,
+                #num_output_channels:list=[64, 128],
+                num_patches:int=1200,
+                num_frames:int=10,
+                num_heads:int=8,
+                hidden_dim:int=1024,
+                dropout_brob:float=0.1,
+                stochastic_depth_rate:float=0.1,
+                seed_device='cuda' 
+                ):
+        super().__init__()
+        self.transformer = transformer.TimeSformer(
+            num_blocks,
+            emb_dim,
+            patch_size,
+            num_patches,
+            num_frames,
+            num_heads,
+            hidden_dim,
+            dropout_brob,
+            stochastic_depth_rate,
+            seed_device,
+        )
 
+        self.seq_pool = layers.SeqPool(emb_dim)
+
+        #loc head
+        self.cx = nn.Linear(emb_dim, num_bboxes)
+        self.cy = nn.Linear(emb_dim, num_bboxes)
+        self.w = nn.Linear(emb_dim, num_bboxes)
+        self.h = nn.Linear(emb_dim, num_bboxes)
+        #cls head
+        self.cls_head = nn.Linear(emb_dim, num_bboxes)
+
+    def forward(self, seq):
+        feat = self.transformer(seq)
+        feat = self.seq_pool(feat)
+        
+        cx = self.cx(feat)
+        cy = self.cy(feat)
+        w = self.w(feat)
+        h = self.h(feat)
+        bboxes = torch.stack([cx,cy,w,h])
+        bboxes = bboxes.permute(1,2,0)
+        bboxes = bboxes.sigmoid()
+
+        logits = self.cls_head(feat)
+        return {'bbox': bboxes, 'logits': logits}
+    
+
+######################################################################
 # vanila detr #
 ####################################################################
 

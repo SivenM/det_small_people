@@ -399,14 +399,14 @@ class TestCropDataset(CropDataset):
 
 class DETRDataset(Dataset):
 
-    def __init__(self, dir_path:str, norm=True, transform=None, target_transforms=None, rgb:bool=False) -> None:
+    def __init__(self, dir_path:str, norm=True, transform=None, target_transforms=None, mode:str='base') -> None:
         super().__init__()
         self.dir_path = dir_path
         self.norm = norm
         self.samples = os.listdir(dir_path)
         self.transform = transform
         self.target_transforms = target_transforms
-        self.rgb = rgb
+        self.mode = mode #base, rgb, time
 
     def __len__(self):
         return len(self.samples)
@@ -446,6 +446,8 @@ class DETRDataset(Dataset):
         targets = self._create_targets(bboxes, img_size)
         if self.transform:
             sample = self.transform(np.array(sample))
+            if self.mode == 'time':
+                sample = sample.unsqueeze(1)
         return sample, targets
     
 

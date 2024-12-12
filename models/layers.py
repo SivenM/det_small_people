@@ -8,6 +8,7 @@ import torch
 from torch import nn
 from torch import Tensor
 import torch.nn.functional as F
+from einops import rearrange
 
 
 class SeparableConv2d(nn.Module):
@@ -168,6 +169,72 @@ class PatchEncoderPad(nn.Module):
         img_padded = self.get_pad(img, h, w)
         return img_padded
 
+
+class PatchEncoderSeq(nn.Module):
+    """
+    Patch encoder for frame sequence
+    """
+    def __init__(self,  
+                 emb_dim:int=256,
+                 patch_size:int=16,
+                 in_channels:int=1,
+                 ) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, emb_dim, kernel_size=patch_size, stride=patch_size)
+
+    def forward(self, seq_frames:Tensor):
+        B, T, C, H, W = seq_frames.shape
+        seq_frames = rearrange(seq_frames, 'b t c h w -> (b t) c h w')
+        patches = self.conv(seq_frames)
+        W = patches.size(-1)
+        patches = patches.flatten(2).transpose(1,2) # ((b*t), num_p, emb_dim)
+        return patches, W
+
+
+class PatchEncoderSeqDeep(nn.Module):
+    """
+    Patch encoder for frame sequence
+    """
+    def __init__(self,  
+                 emb_dim:int=256,
+                 num_output_channels:list=[64, 128],
+                 in_channels:int=1,
+                 ) -> None:
+        super().__init__()
+        modules = []
+        inputs = in_channels
+        num_hidden_layers = len(num_output_channels)
+        for i in range(num_hidden_layers):
+            modules.append(
+                nn.Conv2d(
+                    inputs, 
+                    num_output_channels[i],
+                    kernel_size=3,
+                    padding=1
+                    ))
+            modules.append(nn.ReLU())
+            modules.append(nn.GroupNorm(8, num_output_channels[i]))
+            modules.append(nn.MaxPool2d(2))
+            inputs = num_output_channels[i]
+        modules.append(
+            nn.Conv2d(
+                inputs, 
+                emb_dim,
+                kernel_size=1,
+                #stride=2
+                ))
+        modules.append(nn.ReLU())
+        self.conv_model = nn.Sequential(*modules)
+
+    def forward(self, seq_frames:Tensor):
+        B, T, C, H, W = seq_frames.shape
+        seq_frames = rearrange(seq_frames, 'b t c h w -> (b t) c h w')
+        patches = self.conv_model(seq_frames)
+        W = patches.size(-1)
+        patches = patches.flatten(2).transpose(1,2) # ((b*t), num_p, emb_dim)
+        return patches, W
+    
+
 # attention # 
 
 class SelfAttention(nn.Module):
@@ -314,9 +381,10 @@ class StochasticDepth(nn.Module):
     Dropout на уровне слоев блока
     https://arxiv.org/pdf/1603.09382
     """
-    def __init__(self, drop_prob) -> None:
+    def __init__(self, drop_prob, seed_device='cuda') -> None:
         super().__init__()
         self.drop_prob = drop_prob
+        self.seed_device = seed_device
         self.seed_generator = torch.Generator()
         self.seed_generator.manual_seed(1337)
 
@@ -324,6 +392,6 @@ class StochasticDepth(nn.Module):
         if self.training:
             keep_prob = 1 - self.drop_prob
             shape = (x.shape[0],) + (1,) * (len(x.shape) - 1)
-            rand_tensor = keep_prob + torch.rand(shape, generator=self.seed_generator).to('cuda')
+            rand_tensor = keep_prob + torch.rand(shape, generator=self.seed_generator).to(self.seed_device)
             return (x / keep_prob) * rand_tensor
         return x
