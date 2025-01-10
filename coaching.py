@@ -157,12 +157,12 @@ class Coach:
     def plot_history(self):
         pass
 
-    def fit(self, epoches, model, loss_fn, lr, train_data, val_data=None):
+    def fit(self, epoches, model, loss_fn, lr, train_data, val_data=None, start_epoch=0):
         self.clear_history()
         self.model = model.to(self.device)
         self.loss_fn = loss_fn
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        for epoch in tqdm(range(epoches)):
+        for epoch in tqdm(range(start_epoch, epoches)):
             t_loss, t_acc = self.train_step(epoch, train_data)
             if val_data:
                 v_loss, v_acc = self.val_step(epoch, val_data)

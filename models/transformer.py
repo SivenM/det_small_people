@@ -493,8 +493,8 @@ class TimeSformer(nn.Module):
     def __init__(self, 
                 num_blocks:int=5,
                 emb_dim:int=256,
-                patch_size:int=16,
-                #num_output_channels:list=[64, 128],
+                #patch_size:int=16,
+                num_output_channels:list=[64, 128],
                 num_patches:int=1200,
                 num_frames:int=10,
                 num_heads:int=8,
@@ -508,8 +508,8 @@ class TimeSformer(nn.Module):
         self.num_blocks = num_blocks
         self.num_frames = num_frames
         self.stochastic_depth_rate = stochastic_depth_rate
-        #self.patch_embed = layers.PatchEncoderSeqDeep(emb_dim, num_output_channels)
-        self.patch_embed = layers.PatchEncoderSeq(emb_dim, patch_size)
+        self.patch_embed = layers.PatchEncoderSeqDeep(emb_dim, num_output_channels)
+        #self.patch_embed = layers.PatchEncoderSeq(emb_dim, patch_size)
         self.pos_embed = torch.nn.Parameter(torch.zeros(1, num_patches, emb_dim))
         self.time_embed = torch.nn.Parameter(torch.zeros(1, num_frames, emb_dim))
         self.drop_pos = nn.Dropout(dropout_brob)

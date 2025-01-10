@@ -12,6 +12,10 @@ from torch.utils.data import DataLoader
 import argparse
 
 
+def load_weights(path:str, model:torch.nn.Module) -> torch.nn.Module:
+    return model.load_state_dict(torch.load(path), strict=False)
+
+
 def collate_fn(batch):
     samples = torch.stack([item[0] for item in batch])
     targets = [item[1] for item in batch]
@@ -232,7 +236,7 @@ def train(cfg:dict):
             num_bboxes=cfg['max_bboxes'], 
             emb_dim=cfg['emb_dim'], 
             num_blocks=cfg['num_encoder_blocks'], 
-            patch_size=cfg['patch_size'], 
+            num_output_channels=cfg['out_channel_outputs'], 
             num_patches=cfg['num_patches'],
             num_frames=cfg['num_imgs'], 
             num_heads=4,
@@ -241,10 +245,13 @@ def train(cfg:dict):
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     
     else:
-        raise "Wrong model type. Only detr or detr_loc"
+        raise "Wrong model type."
     
     train_dataloader = create_dataloader(cfg['train_dataset_path'], cfg['mean'], cfg['std'], cfg['train_batch_size'], cfg['model_type'], cfg['norm'], cfg['rgb'])
     val_dataloader = create_dataloader(cfg['val_dataset_path'], cfg['mean'], cfg['std'], cfg['val_batch_size'], cfg['model_type'], cfg['norm'], cfg['rgb'])
+
+    if len(cfg['from_save']):
+        train_model = load_weights(cfg['from_save'], train_model)
 
     print_params(cfg, len(train_dataloader), len(val_dataloader))
     coach.fit(
@@ -253,7 +260,8 @@ def train(cfg:dict):
         loss_fn,
         cfg['lr'],
         train_dataloader,
-        val_dataloader
+        val_dataloader,
+        cfg['start_epoch']
         )
     
 
