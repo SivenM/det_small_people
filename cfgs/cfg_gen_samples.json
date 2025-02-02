@@ -1,0 +1,7 @@
+{
+    "dataset": "/home/max/ieos/data/datasets/stroika",
+    "save_path": "data/stroika/samples",
+    "frame_rate": 1,
+    "indent": 0,
+    "mode": "classic"
+}

@@ -1,0 +1,35 @@
+dataset: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/test_1_frame_v2"
+model_path: "/home/max/ieos/small_obj/vid_pred/runs/seq_det/seq_det_ne_12_one_frame_v2/models/best_loss_0.26.pth"
+model_type: "seq_det_one_frame" #"seq_det"
+model_params:
+  max_bboxes: 5
+  num_encoder_blocks: 12
+  num_decoder_blocks: 2
+  num_queries: 5
+  num_cls: 1
+  emb_dim: 256
+  img_size: [480, 640]
+  num_imgs: 1
+  patch_size: 5
+  num_conv_layers: 5
+  out_channel_outputs: [32, 64, 128, 256, 512]
+  max_seq:  1200
+
+save_dir: "/home/max/ieos/small_obj/vid_pred/test_results/seq_det_v1"
+
+#dataset: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/test"
+#model_path: "/home/max/ieos/small_obj/vid_pred/runs/seq_det/seq_det_ne_9_v1/models/best_loss_1.03.pth"
+#model_type: "seq_det"
+#model_params:
+#  max_bboxes: 5
+#  num_encoder_blocks: 9
+#  num_decoder_blocks: 2
+#  num_queries: 5
+#  num_cls: 1
+#  emb_dim: 256
+#  img_size: [480, 640]
+#  num_imgs: 1
+#  patch_size: 5
+#  num_conv_layers: 5
+#  out_channel_outputs: [32, 64, 128, 256, 512]
+#  max_seq:  768

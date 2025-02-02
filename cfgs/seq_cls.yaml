@@ -1,0 +1,24 @@
+# общее
+name: "model_conv2_en3_lr01_v2"
+save_dir: "/home/max/ieos/small_obj/vid_pred/runs/seq_cls"
+
+# параметры данных
+train_dataset: "/home/max/ieos/small_obj/vid_pred/data/seq_cls/train"
+val_dataset: "/home/max/ieos/small_obj/vid_pred/data/seq_cls/test"
+train_batch_size: 16
+val_batch_size: 8
+
+# параметры модели
+num_blocks: 3
+emb_dim: 256
+num_conv_layers: 2
+out_ch_outputs: [64, 128]
+frame_rate: 10
+max_seq:  768
+patch_size: 5
+
+# параметры обучения
+num_cls: 1
+epoches: 70
+lr: 0.01
+tb: true

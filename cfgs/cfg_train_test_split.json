@@ -1,0 +1,5 @@
+{
+    "in_path" : "/home/max/ieos/small_obj/vid_pred/data/stroika/samples",
+    "out_path_train": "/home/max/ieos/small_obj/vid_pred/data/stroika/train",
+    "out_path_test": "/home/max/ieos/small_obj/vid_pred/data/stroika/test"
+}

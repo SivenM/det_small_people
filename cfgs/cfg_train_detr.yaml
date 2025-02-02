@@ -1,0 +1,63 @@
+# общее
+name: 'timesformer_ne_5_ep500_v2'
+save_dir: "/home/max/ieos/small_obj/vid_pred/runs/timesformer/"
+from_save: ''
+
+
+# параметры данных
+train_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/train"
+val_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/test"
+mean: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
+std: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
+norm: true
+train_batch_size: 4
+val_batch_size: 4
+rgb: false
+max_bboxes: 5
+
+# параметры модели
+model_type: "timesformer"  #"seq_det_one_frame"
+pos_per_block: false
+num_encoder_blocks: 8
+num_decoder_blocks: 1
+num_queries: 5
+num_cls: 1
+emb_dim: 256
+img_size: [480, 640]
+num_imgs: 10
+patch_size: 16
+num_patches: 300
+num_conv_layers: 5
+out_channel_outputs: [32, 64, 128, 256, 512]
+max_seq:  300
+
+# параметры обучения
+num_cls: 1
+epoches: 500
+lr: 0.001
+tb: true
+progress_bar: true
+
+# коэффициенты матчера
+cost_class: 1.
+cost_bbox: 5.
+cost_giou: 2.
+
+# коэффициенты лосса
+cls_scale: 1
+bbox_scale: 5
+giou_scale: 2
+
+# tech
+debug: false
+start_epoch: 0
+
+# типы моделей:
+# detr
+# detr_loc, detr_loc_1_frame - детр только локализация
+# vanilla_detr - детр из демки
+# seq_detr_loc
+# classic_loc
+# classic_seq_loc
+# classic_seq_det, seq_det_one_frame - seqDet модель (рабочая)
+# timesformer
