@@ -406,3 +406,78 @@ class MyVanilaDetrV2(nn.Module):
         #print(f'out transformer: {h.shape}')
         #print(f'out transposed: {h.transpose(0, 1).shape}')
         return self.bbox_embed(h.transpose(0, 1)).sigmoid()
+
+
+
+#####################
+# DefDETR
+#####################
+
+
+class DeformableDETR(nn.Module):
+    def __init__(self, backbone, transformer, num_classes, num_queries, num_feature_levels):
+        super().__init__()
+        self.num_queries = num_queries
+        self.num_classes = num_classes
+        self.num_feature_levels = num_feature_levels
+        hidden_dim = transformer.d_model
+        self.class_embed = nn.Linear(hidden_dim, num_classes)
+        self.bbox_embed = layers.LocFFN(hidden_dim, hidden_dim, 4, 3)
+        if num_feature_levels > 1:
+            num_backbone_outs = len(backbone.pos_embs)
+            input_proj_list = []
+            for _ in range(num_backbone_outs):
+                in_channels = backbone.num_channels[_]
+                input_proj_list.append(nn.Sequential(
+                    nn.Conv2d(in_channels, hidden_dim, kernel_size=1),
+                    nn.GroupNorm(16, hidden_dim),
+                ))
+            for _ in range(num_feature_levels - num_backbone_outs):
+                input_proj_list.append(nn.Sequential(
+                    nn.Conv2d(in_channels, hidden_dim, kernel_size=3, stride=2, padding=1),
+                    nn.GroupNorm(16, hidden_dim),
+                ))
+                in_channels = hidden_dim
+            self.input_proj = nn.ModuleList(input_proj_list)
+        self.backbone = backbone
+        self.transformer = transformer
+        self.query = nn.Embedding(num_queries, hidden_dim)
+        self.pos_query = nn.Embedding(num_queries, hidden_dim)
+
+    def forward(self, sample):
+        features, pos = self.backbone(sample)
+
+        srcs = []
+        for layer_num, feat in enumerate(features):
+            srcs.append(self.input_proj[layer_num](feat))
+
+        t_feats, _, __ = self.transformer(srcs, pos, self.query, self.pos_query)
+        
+        #preds
+        logits = self.class_embed(t_feats)
+        bboxes = self.bbox_embed(t_feats)
+        return {'bbox': bboxes, 'logits': logits}
+    
+
+class DDBackbone(nn.Module):
+    def __init__(self, C=1, layers_dim=[32,64,128,256,512,1024]):
+        super().__init__()
+        self.C = C
+        self.tokenizator = layers.DetrTokenizator(C, layers_dim)
+        self.pos_embs = nn.ModuleList([
+                        pos_emb_layers.PositionEmbeddingLearned(),
+                        pos_emb_layers.PositionEmbeddingLearned(),
+                        pos_emb_layers.PositionEmbeddingLearned(),
+                        pos_emb_layers.PositionEmbeddingLearned(),
+                        ])
+        self.num_channels = [128,256,512,1024]
+        
+    def forward(self, x):
+        assert self.C == x.shape[1]
+        features = self.tokenizator(x)
+        pos_list = []
+        for i, feat in enumerate(features):
+            pos_list.append(
+                self.pos_embs[i](feat)
+            )
+        return features, pos_list

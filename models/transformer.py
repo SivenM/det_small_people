@@ -1,4 +1,5 @@
 from typing import Optional
+import math
 import torch
 from torch import nn
 from torch import Tensor
@@ -6,6 +7,9 @@ import numpy as np
 from models import layers
 from models import pos_emb_layers
 from einops import rearrange
+import torch.nn.functional as F
+from torch.nn.init import xavier_uniform_, constant_, uniform_, normal_
+
 
 # old realization transformer #
 ###############################
@@ -386,7 +390,7 @@ class DeformableEncoderBlock(nn.Module):
 
     def __init__(self, dpr, emb_dim=256, n_lvls=4, n_heads=8, n_points=4, dropout_prob=0.1) -> None:
         super().__init__()
-        self.self_att = layers.MultiScaleDeformableAttention(emb_dim, n_lvls, n_heads, n_points)
+        self.self_att = layers.DfAttn(emb_dim, n_lvls, n_heads, n_points)
         self.dropout_1 = nn.Dropout(dropout_prob)
         self.norm1 = nn.LayerNorm(emb_dim)
 
@@ -427,24 +431,219 @@ class DeformableEncoder(nn.Module):
 
             ref_y, ref_x = torch.meshgrid(torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
                                           torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device))
-            #ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
-            #ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
+            ref_y = ref_y.reshape(-1)[None]# / (valid_ratios[:, None, lvl, 1] * H_)
+            ref_x = ref_x.reshape(-1)[None]# / (valid_ratios[:, None, lvl, 0] * W_)
             ref = torch.stack((ref_x, ref_y), -1)
             reference_points_list.append(ref)
         reference_points = torch.cat(reference_points_list, 1)
-        #reference_points = reference_points[:, :, None] * valid_ratios[:, None]
+        reference_points = reference_points[:, :, None]# * valid_ratios[:, None]
         return reference_points
 
     def forward(self, x:Tensor, spatial_shapes:Tensor, lvl_start_idx:Tensor, pos=None):
         reference_points = self.get_reference_points(spatial_shapes, x.device)
         for block in self.t_blocks:
             x = block(x, pos, reference_points, spatial_shapes, lvl_start_idx)
-        return x
+        return x, reference_points
 
 
 class DeformableDecoderBlock(nn.Module):
-    pass
+    def __init__(self, d_model=256, d_ffn=1024,
+                 dropout=0.1, activation="relu",
+                 n_levels=4, n_heads=8, n_points=4):
+        super().__init__()
 
+        # cross attention
+        self.cross_attn = layers.DfAttn(d_model, n_levels, n_heads, n_points)
+        self.dropout1 = nn.Dropout(dropout)
+        self.norm1 = nn.LayerNorm(d_model)
+
+        # self attention
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.norm2 = nn.LayerNorm(d_model)
+
+        # ffn
+        self.linear1 = nn.Linear(d_model, d_ffn)
+        self.activation = _get_activation_fn(activation)
+        self.dropout3 = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(d_ffn, d_model)
+        self.dropout4 = nn.Dropout(dropout)
+        self.norm3 = nn.LayerNorm(d_model)
+
+    @staticmethod
+    def with_pos_embed(tensor, pos):
+        return tensor if pos is None else tensor + pos
+
+    def forward_ffn(self, tgt):
+        tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
+        tgt = tgt + self.dropout4(tgt2)
+        tgt = self.norm3(tgt)
+        return tgt
+    
+    def forward(self, tgt, query_pos, reference_points, src, src_spatial_shapes, level_start_index, src_padding_mask=None):
+        # self attention
+        q = k = self.with_pos_embed(tgt, query_pos)
+        tgt2 = self.self_attn(q.transpose(0, 1), k.transpose(0, 1), tgt.transpose(0, 1))[0].transpose(0, 1)
+        tgt = tgt + self.dropout2(tgt2)
+        tgt = self.norm2(tgt)
+
+        # cross attention
+        tgt2 = self.cross_attn(self.with_pos_embed(tgt, query_pos),
+                               reference_points,
+                               src, src_spatial_shapes, level_start_index)
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = self.norm1(tgt)
+
+        # ffn
+        tgt = self.forward_ffn(tgt)
+
+        return tgt
+
+
+class DeformableDecoder(nn.Module):
+    def __init__(self, emb_dim, num_blocks, d_ffn=1024, 
+                 dropout=0.1, activation='relu',
+                 n_levels=4, n_heads=8, n_points=4,
+                 return_intermediate=False):
+        super().__init__()
+        modules = []
+        for _ in range(num_blocks):
+            modules.append(DeformableDecoderBlock(emb_dim, d_ffn,
+                                                  dropout, activation,
+                                                n_levels, n_heads, n_points))
+        self.layers = nn.Sequential(*modules)
+        self.num_blocks = num_blocks
+        self.return_intermediate = return_intermediate
+        self.bbox_embed = None
+        self.class_embed = None
+
+    def inverse_sigmoid(self, x, eps=1e-5):
+        x = x.clamp(min=0, max=1)
+        x1 = x.clamp(min=eps)
+        x2 = (1 - x).clamp(min=eps)
+        return torch.log(x1/x2)
+
+    def forward(self, tgt, reference_points, src, src_spatial_shapes, src_level_start_index,
+                query_pos=None, src_padding_mask=None):
+        output = tgt
+
+        intermediate = []
+        intermediate_reference_points = []
+        for lid, layer in enumerate(self.layers):
+            #if reference_points.shape[-1] == 4:
+            #    reference_points_input = reference_points[:, :, None] \
+            #                             * torch.cat([src_valid_ratios, src_valid_ratios], -1)[:, None]
+            #else:
+            #    assert reference_points.shape[-1] == 2
+            reference_points_input = reference_points[:, :, None]# * src_valid_ratios[:, None]
+            output = layer(output, query_pos, reference_points_input, src, src_spatial_shapes, src_level_start_index, src_padding_mask)
+
+            # hack implementation for iterative bounding box refinement
+            if self.bbox_embed is not None:
+                tmp = self.bbox_embed[lid](output)
+                if reference_points.shape[-1] == 4:
+                    new_reference_points = tmp + self.inverse_sigmoid(reference_points)
+                    new_reference_points = new_reference_points.sigmoid()
+                else:
+                    assert reference_points.shape[-1] == 2
+                    new_reference_points = tmp
+                    new_reference_points[..., :2] = tmp[..., :2] + self.inverse_sigmoid(reference_points)
+                    new_reference_points = new_reference_points.sigmoid()
+                reference_points = new_reference_points.detach()
+
+            if self.return_intermediate:
+                intermediate.append(output)
+                intermediate_reference_points.append(reference_points)
+
+        if self.return_intermediate:
+            return torch.stack(intermediate), torch.stack(intermediate_reference_points)
+
+        return output, reference_points
+
+
+
+class DeformableTransformer(nn.Module):
+    def __init__(self, emb_dim=256, nhead=8,
+                 num_encoder_layers=6, num_decoder_layers=6, dim_feedforward=1024, dropout=0.1,
+                 activation="relu", return_intermediate_dec=False,
+                 num_feature_levels=4, dec_n_points=4,  enc_n_points=4,
+                 #two_stage=False, two_stage_num_proposals=300
+                 ):
+        super().__init__()
+
+        self.d_model = emb_dim
+        self.nhead = nhead
+        self.two_stage = False
+        #self.two_stage_num_proposals = two_stage_num_proposals
+
+        self.encoder =  DeformableEncoder(emb_dim, num_encoder_layers, 0.1)
+        self.decoder = DeformableDecoder(emb_dim, num_decoder_layers, 
+                                         dim_feedforward, dropout, 
+                                         activation, num_feature_levels,
+                                         nhead, dec_n_points)
+        #if two_stage:
+        #    self.enc_output = nn.Linear(emb_dim, emb_dim)
+        #    self.enc_output_norm = nn.LayerNorm(emb_dim)
+        #    self.pos_trans = nn.Linear(emb_dim * 2, emb_dim * 2)
+        #    self.pos_trans_norm = nn.LayerNorm(emb_dim * 2)
+        #else:
+        self.reference_points = nn.Linear(emb_dim, 2)
+        self.level_embed = nn.Parameter(torch.Tensor(num_feature_levels, emb_dim))
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+        for m in self.modules():
+            if isinstance(m, layers.MultiScaleDeformableAttention):
+                m._reset_parameters()
+        if not self.two_stage:
+            xavier_uniform_(self.reference_points.weight.data, gain=1.0)
+            constant_(self.reference_points.bias.data, 0.)
+        normal_(self.level_embed)
+
+    def prepare_input_features(self, srcs, pos_embeds, emb_dim=256, num_feature_levels=4):
+        src_flatten = []
+        lvl_pos_embed_flatten = []
+        spatial_shapes = []
+        for lvl, (src, pos_embed) in enumerate(zip(srcs, pos_embeds)):
+            bs, c, h, w = src.shape
+            spatial_shape = (h, w)
+            spatial_shapes.append(spatial_shape)
+            src = src.flatten(2).transpose(1, 2)
+            pos_embed = pos_embed.flatten(2).transpose(1, 2)
+            lvl_pos_embed = pos_embed + self.level_embed[lvl].view(1, 1, -1)
+            lvl_pos_embed_flatten.append(lvl_pos_embed)
+            src_flatten.append(src)
+        src_flatten = torch.cat(src_flatten, 1)
+        lvl_pos_embed_flatten = torch.cat(lvl_pos_embed_flatten, 1)
+        spatial_shapes = torch.as_tensor(spatial_shapes, dtype=torch.long, device=src_flatten.device)
+        level_start_index = torch.cat((spatial_shapes.new_zeros((1, )), spatial_shapes.prod(1).cumsum(0)[:-1]))
+        return src_flatten, lvl_pos_embed_flatten, spatial_shapes, level_start_index
+
+
+    def forward(self, srcs, pos_embeds, query_embed, query_pos):
+        src_flatten, lvl_pos_embed, spatial_shapes, level_start_index = self.prepare_input_features(srcs, pos_embeds)
+
+        memory, _ = self.encoder(src_flatten, spatial_shapes, level_start_index, lvl_pos_embed)
+
+        bs, _, c = memory.shape
+        q = query_embed.weight
+        q = q.unsqueeze(0).expand(bs, -1, -1)
+        q_pos = query_pos.weight
+        q_pos = q_pos.unsqueeze(0).expand(bs, -1, -1)
+        reference_points = self.reference_points(q_pos).sigmoid()
+        init_reference_out = reference_points
+    
+        hs, inter_references = self.decoder(q, reference_points, memory,
+                                            spatial_shapes, level_start_index, q_pos)
+        inter_references_out = inter_references
+        return hs, init_reference_out, inter_references_out
+
+#################################################
+#  TimesFormer
+#################################################
 
 class TimeSformerBlock(nn.Module):
     def __init__(self, 
@@ -535,3 +734,15 @@ class TimeSformer(nn.Module):
             x = block(x,batch_size, self.num_frames, width)
         x = self.norm(x)
         return x
+    
+
+
+def _get_activation_fn(activation):
+    """Return an activation function given a string"""
+    if activation == "relu":
+        return F.relu
+    if activation == "gelu":
+        return F.gelu
+    if activation == "glu":
+        return F.glu
+    raise RuntimeError(F"activation should be relu/gelu, not {activation}.")
