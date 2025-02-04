@@ -1,5 +1,5 @@
 # общее
-name: 'run1_en4_de4_ep200'
+name: 'run1_en4_de5_ep200'
 save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
 from_save: ''
 
@@ -7,6 +7,8 @@ from_save: ''
 # параметры данных
 train_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/train_1_frame_v2"
 val_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/test_1_frame_v2"
+mean: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
+std: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
 norm: true
 train_batch_size: 8
 val_batch_size: 8
@@ -16,7 +18,7 @@ max_bboxes: 5
 # параметры модели
 model_type: "def_detr"
 num_encoder_blocks: 4
-num_decoder_blocks: 4
+num_decoder_blocks: 5
 num_queries: 5
 num_cls: 1
 emb_dim: 256
