@@ -149,19 +149,20 @@ class DetrLoss(nn.Module):
             print(f'bbox loss: {loss_l1}')
             print(f'bbox loss iou: {loss_giou}')
 
-        return loss_l1 * self.bbox_scale + loss_giou * self.giou_scale
+        out_loss = loss_l1 * self.bbox_scale + loss_giou * self.giou_scale
+        return out_loss, loss_giou
     
     def forward(self, preds, targets):
         indices = self.matcher(preds, targets)
         num_bboxes = sum(len(t['labels']) for t in targets)
         c_loss = self.loss_cls(preds, targets, indices, num_bboxes)
-        b_loss = self.loss_bbox(preds, targets, indices, num_bboxes)
+        b_loss, iou = self.loss_bbox(preds, targets, indices, num_bboxes)
         if self.debug:
             print(f'cls loss: {c_loss}')
             print(f'bbox loss: {b_loss}')
 
         losses = c_loss + b_loss
-        return losses
+        return losses, iou
 
 
 class LocLoss(nn.Module):

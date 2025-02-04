@@ -671,8 +671,6 @@ class DfAttn(nn.Module):
         # Сборка смещений и применение их к reference_points
         N, Len_q, num_heads, num_levels, num_points, _ = sampling_offsets.shape
         reference_points = reference_points[:, :, None, :, None, :] # (N, Len_q, 1, num_levels, 1, 2)
-        print(f'ref_points: {reference_points.shape}')
-        print(f'sampling offsets: {sampling_offsets.shape}')
         sampling_locations = reference_points + sampling_offsets # (N, Len_q, num_heads, num_levels, num_points, 2)
 
         # Преобразуем sampling_locations в индексы для grid_sample

@@ -1,0 +1,44 @@
+# общее
+name: 'run1_en4_de4_ep200'
+save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
+from_save: ''
+
+
+# параметры данных
+train_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/train_1_frame_v2"
+val_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/test_1_frame_v2"
+norm: true
+train_batch_size: 8
+val_batch_size: 8
+rgb: false
+max_bboxes: 5
+
+# параметры модели
+model_type: "def_detr"
+num_encoder_blocks: 4
+num_decoder_blocks: 4
+num_queries: 5
+num_cls: 1
+emb_dim: 256
+img_size: [480, 640]
+num_feature_levels: 4
+
+# параметры обучения
+epoches: 200
+lr: 0.001
+tb: true
+progress_bar: true
+
+# коэффициенты матчера
+cost_class: 1.
+cost_bbox: 5.
+cost_giou: 2.
+
+# коэффициенты лосса
+cls_scale: 1
+bbox_scale: 5
+giou_scale: 2
+
+# tech
+debug: false
+start_epoch: 0

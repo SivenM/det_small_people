@@ -11,12 +11,12 @@ class CSVLogger:
         self.filepath = os.path.join(dir_path, 'logs.csv')
         with open(self.filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'val_acc'])
+            writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'val_acc', 't_iou', 'v_iou'])
 
-    def log(self, epoch:int, loss:float, val_loss:float, acc:float, val_acc:float):
+    def log(self, epoch:int, loss:float, val_loss:float, acc:float, val_acc:float, t_iou:float, v_iou:float):
         with open(self.filepath, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([epoch, loss, val_loss, acc, val_acc])
+            writer.writerow([epoch, loss, val_loss, acc, val_acc, t_iou, v_iou])
 
 
 class ModelCheckpoint:
@@ -46,7 +46,7 @@ class ModelCheckpoint:
 
 
 class TensorBoard:
-    def __init__(self, log_dir:str, metrics_names:list=['Loss', 'Acc']) -> None:
+    def __init__(self, log_dir:str, metrics_names:list=['Loss', 'Acc', 'IoU']) -> None:
         self.writer=SummaryWriter(log_dir)
         self.metrics_names = self.get_metric_names(metrics_names)
 

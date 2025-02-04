@@ -144,15 +144,15 @@ class Coach:
         self.history['t_acc'].append(t_acc)
         self.history['v_acc'].append(v_acc)
 
-    def update_callbacks(self, epoch, t_loss, v_loss, t_acc, v_acc):
+    def update_callbacks(self, epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou):
         if self.logger:
-            self.logger.log(epoch, t_loss, v_loss, t_acc, v_acc)
+            self.logger.log(epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou)
         
         if self.checkpoint:
             self.checkpoint.save(self.model, epoch, v_loss)
 
         if self.tboard:
-            self.tboard.add([t_loss, v_loss, t_acc, v_acc], epoch)
+            self.tboard.add([t_loss, v_loss, t_acc, v_acc, t_iou, v_iou], epoch)
 
     def plot_history(self):
         pass
@@ -163,12 +163,12 @@ class Coach:
         self.loss_fn = loss_fn
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         for epoch in tqdm(range(start_epoch, epoches)):
-            t_loss, t_acc = self.train_step(epoch, train_data)
+            t_loss, t_acc, t_iou = self.train_step(epoch, train_data)
             if val_data:
-                v_loss, v_acc = self.val_step(epoch, val_data)
+                v_loss, v_acc, v_iou = self.val_step(epoch, val_data)
             else:
                 v_loss, v_acc = 0., 0.
-            self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc)
+            self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou)
             self.update_history(t_loss, v_loss, t_acc, v_acc)
             #if self.tboard:
             #    self.tboard.add_scalar('Loss/train', t_loss, epoch)
@@ -336,7 +336,7 @@ class SeqDetCoach(Coach):
     def train_step(self, epoch, data) -> Tuple[float, float]:
         self.model.train()
         self.loss_fn.train()
-        t_loss, t_acc = 0., 0.
+        t_loss, t_acc, t_iou = 0., 0., 0.
 
         progress_bar = tqdm(
             enumerate(data),
@@ -350,24 +350,27 @@ class SeqDetCoach(Coach):
             #    continue
             sample, label = sample.to(self.device), self._to_cuda(label)
             pred = self.model(sample)
-            loss = self.loss_fn(pred, label)
+            loss, iou = self.loss_fn(pred, label)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             #print(loss.item())
             t_loss += loss.item()
+            t_iou += iou.item()
             progress_bar.set_postfix(
                 {
-                    'train_loss': t_loss / (batch + 1)
+                    'train_loss': t_loss / (batch + 1),
+                    'train_iou': t_iou / (batch + 1)
                 }
             )
         t_loss = t_loss / len(data)
-        return t_loss, t_acc
+        t_iou = t_iou / len(data)
+        return t_loss, t_acc, t_iou
     
     def val_step(self, epoch, data) -> Tuple[float, float]:
         self.model.eval()
         self.loss_fn.eval()
-        v_loss, v_acc = 0, 0
+        v_loss, v_acc, v_iou = 0, 0, 0
         progress_bar = tqdm(
             enumerate(data),
             desc=f"val epoch {epoch}",
@@ -381,12 +384,15 @@ class SeqDetCoach(Coach):
                 #    continue
                 sample, label= sample.to(self.device), self._to_cuda(label)
                 pred = self.model(sample)
-                loss = self.loss_fn(pred, label)
+                loss, iou = self.loss_fn(pred, label)
                 v_loss += loss.item()
+                v_iou += iou.item()
                 progress_bar.set_postfix(
                     {
                         'val_loss': v_loss / (batch + 1),
+                        'val_iou': v_iou / (batch + 1),
                     }
                 )
         v_loss = v_loss / len(data)
-        return v_loss, v_acc
+        v_iou = v_iou / len(data)
+        return v_loss, v_acc, v_iou

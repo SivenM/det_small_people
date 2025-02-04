@@ -454,7 +454,7 @@ class DeformableDETR(nn.Module):
         t_feats, _, __ = self.transformer(srcs, pos, self.query, self.pos_query)
         
         #preds
-        logits = self.class_embed(t_feats)
+        logits = self.class_embed(t_feats).squeeze(-1)
         bboxes = self.bbox_embed(t_feats)
         return {'bbox': bboxes, 'logits': logits}
     

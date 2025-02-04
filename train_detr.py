@@ -1,7 +1,8 @@
 import os
 import yaml
 from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
-from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet, TimeSformerDet
+from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet, TimeSformerDet, DDBackbone, DeformableDETR
+from models.transformer import DeformableTransformer
 from coaching import Coach, DetrLocCoach, LocCoach, SeqDetCoach
 import losses
 import utils
@@ -120,6 +121,16 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             norm=norm, 
             transform=sample_transforms,
             mode='time',
+            )
+    elif model_type == 'def_detr':
+        sample_transforms = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+        ])
+        dataset = DETRDataset(
+            path, 
+            norm=True, 
+            transform=sample_transforms
             )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
     return dataloader
@@ -243,7 +254,14 @@ def train(cfg:dict):
         )
         matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
-    
+    elif cfg['model_type'] == 'def_detr':
+        coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
+        backbone = DDBackbone()
+        transformer = DeformableTransformer(emb_dim=cfg['emb_dim'], nhead=4, 
+                                            num_encoder_layers=cfg['num_encoder_blocks'], num_decoder_layers=cfg['num_decoder_blocks'])
+        train_model = DeformableDETR(backbone, transformer, cfg['num_cls'], cfg['num_queries'], cfg['num_feature_levels'])
+        matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
+        loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     else:
         raise "Wrong model type."
     
