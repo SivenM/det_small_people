@@ -447,16 +447,16 @@ class MSDeformAttn(nn.Module):
             wd = wd[..., None]  # (N, Len_q, num_heads, num_points, 1)
 
             # Извлекаем значения для каждой точки
-            value_a = level_value[:, y0, x0, :, :]  # (N, Len_q, num_heads, head_dim)
-            value_b = level_value[:, y1, x0, :, :]  # (N, Len_q, num_heads, head_dim)
-            value_c = level_value[:, y0, x1, :, :]  # (N, Len_q, num_heads, head_dim)
-            value_d = level_value[:, y1, x1, :, :]  # (N, Len_q, num_heads, head_dim)
+            #value_a = level_value[:, y0, x0, :, :]  # (N, Len_q, num_heads, head_dim)
+            #value_b = level_value[:, y1, x0, :, :]  # (N, Len_q, num_heads, head_dim)
+            #value_c = level_value[:, y0, x1, :, :]  # (N, Len_q, num_heads, head_dim)
+            #value_d = level_value[:, y1, x1, :, :]  # (N, Len_q, num_heads, head_dim)
 
             # Приводим value_a, value_b, value_c, value_d к размерности (N, Len_q, num_heads, num_points, head_dim)
-            value_a = value_a.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
-            value_b = value_b.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
-            value_c = value_c.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
-            value_d = value_d.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_a = level_value[:, y0, x0, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_b = level_value[:, y1, x0, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_c = level_value[:, y0, x1, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_d = level_value[:, y1, x1, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
 
             # Взвешенное суммирование
             output[:, :, :, level * self.num_points:(level + 1) * self.num_points, :] += (
@@ -619,7 +619,102 @@ class DeformableAttention(nn.Module):
         return output
 
 
-class DfAttn(nn.Module):
+class DfAttnV3(nn.Module):
+
+    def __init__(self, d_model=256, n_levels=4, n_heads=4, n_points=4):
+        """
+        Multi-Scale Deformable Attention Module
+        :param d_model      hidden dimension
+        :param n_levels     number of feature levels
+        :param n_heads      number of attention heads
+        :param n_points     number of sampling points per attention head per feature level
+        """
+        super().__init__()
+        if d_model % n_heads != 0:
+            raise ValueError('d_model must be divisible by n_heads, but got {} and {}'.format(d_model, n_heads))
+        self.head_dim = d_model // n_heads
+        self.im2col_step = 64
+
+        self.emb_dim = d_model
+        self.num_levels = n_levels
+        self.num_heads = n_heads
+        self.num_points = n_points
+
+        self.sampling_offsets = nn.Linear(d_model, n_heads * n_levels * n_points * 2)
+        self.attention_weights = nn.Linear(d_model, n_heads * n_levels * n_points)
+        self.value_proj = nn.Linear(d_model, d_model)
+        self.output_proj = nn.Linear(d_model, d_model)
+
+    def forward(self, query, reference_points, input_flatten, input_spatial_shapes, input_level_start_index):
+        """
+        :param query                       (N, Length_{query}, C)
+        :param reference_points            (N, Length_{query}, n_levels, 2), range in [0, 1], top-left (0,0), bottom-right (1, 1), including padding area
+                                        or (N, Length_{query}, n_levels, 4), add additional (w, h) to form reference boxes
+        :param input_flatten               (N, \sum_{l=0}^{L-1} H_l \cdot W_l, C)
+        :param input_spatial_shapes        (n_levels, 2), [(H_0, W_0), (H_1, W_1), ..., (H_{L-1}, W_{L-1})]
+        :param input_level_start_index     (n_levels, ), [0, H_0*W_0, H_0*W_0+H_1*W_1, H_0*W_0+H_1*W_1+H_2*W_2, ..., H_0*W_0+H_1*W_1+...+H_{L-1}*W_{L-1}]
+        :param input_padding_mask          (N, \sum_{l=0}^{L-1} H_l \cdot W_l), True for padding elements, False for non-padding elements
+
+        :return output                     (N, Length_{query}, C)
+        """
+        N, Len_q, C = query.shape
+        N, Len_in, _ = input_flatten.shape
+        assert (input_spatial_shapes[:, 0] * input_spatial_shapes[:, 1]).sum() == Len_in
+
+        value = self.value_proj(input_flatten)
+        value = value.view(N, Len_in, self.num_heads, self.head_dim)
+
+        sampling_offsets = self.sampling_offsets(query).view(N, Len_q, self.num_heads, self.num_levels, self.num_points, 2)
+        attention_weights = self.attention_weights(query).view(N, Len_q, self.num_heads, self.num_levels * self.num_points)
+        attention_weights = F.softmax(attention_weights, -1).view(N, Len_q, self.num_heads, self.num_levels, self.num_points)
+
+        # Сборка смещений и применение их к reference_points
+        N, Len_q, num_heads, num_levels, num_points, _ = sampling_offsets.shape
+        reference_points = reference_points[:, :, None, :, None, :] # (N, Len_q, 1, num_levels, 1, 2)
+        sampling_locations = reference_points + sampling_offsets # (N, Len_q, num_heads, num_levels, num_points, 2)
+
+        output = []
+        for level in range(self.num_levels):
+            spatial_h, spatial_w = input_spatial_shapes[level]  # Размеры текущего уровня
+            level_start_idx = input_level_start_index[level]  # Начальный индекс уровня
+
+            # Создание сетки координат для текущего уровня
+            h_range = torch.arange(spatial_h, dtype=torch.float32, device=query.device)
+            w_range = torch.arange(spatial_w, dtype=torch.float32, device=query.device)
+            sampling_grid = torch.stack(torch.meshgrid(h_range, w_range), dim=-1)  # [H, W, 2]
+
+            # Добавление смещений к стартовым точкам
+            sampling_locations = reference_points[:, :, level].unsqueeze(3) + sampling_offsets[:, :, :, level, :, :] / \
+                                 torch.tensor([spatial_h, spatial_w], device=query.device)[None, None, None, None, :]  # [B, Nq, H, P, 2]
+
+            # Приведение координат к диапазону [-1, 1] для grid_sample
+            sampling_locations = sampling_locations * 2 - 1
+
+            # Выборка значений признаков в выбранных точках
+            level_features = input_flatten[:, level_start_idx:level_start_idx + spatial_h * spatial_w, :].view(
+                N, spatial_h, spatial_w, self.emb_dim
+            ).permute(0, 3, 1, 2)  # [B, C, H, W]
+
+            sampled_features = F.grid_sample(
+                level_features,
+                sampling_locations.view(N, Len_q, self.num_heads * self.num_points, 1, 2),
+                mode='bilinear',
+                padding_mode='zeros',
+                align_corners=False
+            ).view(N, self.emb_dim, Len_q, self.num_heads, self.num_points)  # [B, C, Nq, H, P]
+
+            # Агрегация по точкам с учетом весов внимания
+            output_level = (sampled_features * attention_weights[:, :, :, level, :].unsqueeze(1)).sum(dim=-1)  # [B, C, Nq, H]
+            output.append(output_level)
+
+        # Объединение результатов по уровням
+        output = torch.cat(output, dim=-1).view(N, self.emb_dim, Len_q).permute(0, 2, 1)  # [B, Nq, C]
+
+        # Выходной линейный слой
+        return self.output_proj(output)
+    
+
+class DfAttnV2(nn.Module):
 
     def __init__(self, d_model=256, n_levels=4, n_heads=4, n_points=4):
         """
@@ -675,13 +770,125 @@ class DfAttn(nn.Module):
 
         # Преобразуем sampling_locations в индексы для grid_sample
         sampling_grids = 2 * sampling_locations - 1  # Нормализация в диапазон [-1, 1]
+        value_samples = []
+        for level in range(self.num_levels):
+            start_idx = input_level_start_index[level]
+            end_idx = input_level_start_index[level + 1] if level < self.num_levels - 1 else N
+            print(f'start idx: {start_idx}\nend_idx: {end_idx}')
+            print(f'val: {value.shape}')
+            curr_value = value[:, start_idx:end_idx]
+            print(f'curr_val: {curr_value.shape}')
+            curr_value = curr_value.permute(0, 3, 2, 1)  # [B, head_dim, n_heads, H_l*W_l]
+            print(f'curr_val: {curr_value.shape}')
+            H_l, W_l = input_spatial_shapes[level]
+            curr_value = curr_value.view(N, self.head_dim, self.num_heads, H_l, W_l)  # [B, head_dim, n_heads, H_l, W_l]
+            curr_value = curr_value.permute(0, 2, 1, 3, 4).flatten(0, 1)  # [B*n_heads, head_dim, H_l, W_l]
+            print(f'out curr_val: {curr_value.shape}')
+
+            # Применяем grid_sample для интерполяции значений
+            sampling_grid_lvl = sampling_grids[:, :, :, level].flatten(0, 1)  # [B*Len_q*n_heads, n_points, 2]
+            print(f'sample grid lvl: {sampling_grid_lvl.shape}')
+            sampled_value = F.grid_sample(
+                curr_value,
+                sampling_grid_lvl[:, None],
+                mode='bilinear',
+                padding_mode='zeros',
+                align_corners=False
+            )[:, :, 0, :].view(N, self.num_heads, Len_q, self.num_points, self.head_dim)  # [B, n_heads, N_q, n_points, head_dim]
+
+            value_samples.append(sampled_value)
+
+        value_samples = torch.stack(value_samples, dim=3)  # [B, n_heads, N_q, n_levels, n_points, head_dim]
+        value_samples = value_samples.flatten(3, 4)  # [B, n_heads, N_q, n_levels * n_points, head_dim]
+
+        # Вычисляем внимание
+        output = (value_samples * attention_weights.unsqueeze(-1)).sum(dim=3)  # [B, n_heads, N_q, head_dim]
+
+        # Объединяем головы
+        output = output.transpose(1, 2).contiguous().view(N, Len_q, C)  # [B, N_q, C]
+
+        # Проецируем выход
+        output = self.output_proj(output)  # [B, N_q, C]
+        return output
+
+
+class DfAttn(nn.Module):
+
+    def __init__(self, d_model=256, n_levels=4, n_heads=4, n_points=4):
+        """
+        Multi-Scale Deformable Attention Module
+        :param d_model      hidden dimension
+        :param n_levels     number of feature levels
+        :param n_heads      number of attention heads
+        :param n_points     number of sampling points per attention head per feature level
+        """
+        super().__init__()
+        if d_model % n_heads != 0:
+            raise ValueError('d_model must be divisible by n_heads, but got {} and {}'.format(d_model, n_heads))
+        self.head_dim = d_model // n_heads
+        self.im2col_step = 64
+
+        self.emb_dim = d_model
+        self.num_levels = n_levels
+        self.num_heads = n_heads
+        self.num_points = n_points
+
+        self.sampling_offsets = nn.Linear(d_model, n_heads * n_levels * n_points * 2)
+        self.attention_weights = nn.Linear(d_model, n_heads * n_levels * n_points)
+        self.value_proj = nn.Linear(d_model, d_model)
+        self.output_proj = nn.Linear(d_model, d_model)
+
+    def forward(self, query, reference_points, input_flatten, input_spatial_shapes, input_level_start_index):
+        """
+        :param query                       (N, Length_{query}, C)
+        :param reference_points            (N, Length_{query}, n_levels, 2), range in [0, 1], top-left (0,0), bottom-right (1, 1), including padding area
+                                        or (N, Length_{query}, n_levels, 4), add additional (w, h) to form reference boxes
+        :param input_flatten               (N, \sum_{l=0}^{L-1} H_l \cdot W_l, C)
+        :param input_spatial_shapes        (n_levels, 2), [(H_0, W_0), (H_1, W_1), ..., (H_{L-1}, W_{L-1})]
+        :param input_level_start_index     (n_levels, ), [0, H_0*W_0, H_0*W_0+H_1*W_1, H_0*W_0+H_1*W_1+H_2*W_2, ..., H_0*W_0+H_1*W_1+...+H_{L-1}*W_{L-1}]
+        :param input_padding_mask          (N, \sum_{l=0}^{L-1} H_l \cdot W_l), True for padding elements, False for non-padding elements
+
+        :return output                     (N, Length_{query}, C)
+        """
+        N, Len_q, C = query.shape
+        N, Len_in, _ = input_flatten.shape
+        assert (input_spatial_shapes[:, 0] * input_spatial_shapes[:, 1]).sum() == Len_in
+
+        value = self.value_proj(input_flatten)
+        value = value.view(N, Len_in, self.num_heads, self.head_dim)
+
+        sampling_offsets = self.sampling_offsets(query).view(N, Len_q, self.num_heads, self.num_levels, self.num_points, 2)
+        attention_weights = self.attention_weights(query).view(N, Len_q, self.num_heads, self.num_levels * self.num_points)
+        attention_weights = F.softmax(attention_weights, -1).view(N, Len_q, self.num_heads, self.num_levels, self.num_points)
+
+        # Сборка смещений и применение их к reference_points
+        N, Len_q, num_heads, num_levels, num_points, _ = sampling_offsets.shape
+        reference_points = reference_points[:, :, None, :, None, :] # (N, Len_q, 1, num_levels, 1, 2)
+        sampling_locations = reference_points + sampling_offsets # (N, Len_q, num_heads, num_levels, num_points, 2)
+
+        offset_normalizer = torch.stack([input_spatial_shapes[..., 1], input_spatial_shapes[..., 0]], -1)
+        print(f'{offset_normalizer.shape=}')
+        #print(f'{a.shape=}')
+        #sampling_locations = reference_points[:, :, None, :, None, :] + a
+        #sampling_locations = reference_points[:, :, None, :, None, :] \
+        #                    + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
+        # Преобразуем sampling_locations в индексы для grid_sample
+        #reference_points = reference_points[:, :, None, :, None, :] # (N, Len_q, 1, num_levels, 1, 2)
+        print(f'{sampling_offsets.shape=}')
+        print(f'{reference_points.shape=}')
+        a = sampling_offsets / offset_normalizer[None, None, None, :, None, :]
+        print(f'{a.shape=}')
+        sampling_locations = reference_points + a #
+        print(f'{sampling_locations.max()=}')
+        print(f'{sampling_locations.min()=}')
         N_, _, M_, D_ = value.shape
         _, Lq_, M_, L_, P_, _ = sampling_locations.shape
+        print(f'{value.shape=}')
         value_list = value.split([H_ * W_ for H_, W_ in input_spatial_shapes], dim=1)
-        #for val in value_list:
-        #    print(f'value list val: {val.shape}')
-        #print('\n\n')
-        sampling_grids = 2 * sampling_locations - 1
+        print('val list:')
+        for val in value_list:
+            print(f'\tval: {val.shape}')
+        sampling_grids = 2 * sampling_locations - 1  # Нормализация в диапазон [-1, 1]
         sampling_value_list = []
         for lid_, (H_, W_) in enumerate(input_spatial_shapes):
             # N_, H_*W_, M_, D_ -> N_, H_*W_, M_*D_ -> N_, M_*D_, H_*W_ -> N_*M_, D_, H_, W_
@@ -693,13 +900,14 @@ class DfAttn(nn.Module):
             # N_*M_, D_, Lq_, P_
             sampling_value_l_ = F.grid_sample(value_l_, sampling_grid_l_,
                                               mode='bilinear', padding_mode='zeros', align_corners=False)
+            print(f'{sampling_grid_l_.shape=}')
             sampling_value_list.append(sampling_value_l_)
             #print('\n')
         # (N_, Lq_, M_, L_, P_) -> (N_, M_, Lq_, L_, P_) -> (N_, M_, 1, Lq_, L_*P_)
         attention_weights = attention_weights.transpose(1, 2).reshape(N_ * M_, 1, Lq_, L_ * P_)
         output = (torch.stack(sampling_value_list, dim=-2).flatten(-2) * attention_weights).sum(-1).view(N_, M_ * D_, Lq_)
         output = output.transpose(1, 2).contiguous()
-
+        print(f'output: {output.shape}')
         output = self.output_proj(output)
         return output
 
@@ -771,7 +979,7 @@ class StochasticDepth(nn.Module):
         if self.training:
             keep_prob = 1 - self.drop_prob
             shape = (x.shape[0],) + (1,) * (len(x.shape) - 1)
-            rand_tensor = keep_prob + torch.rand(shape, generator=self.seed_generator).to(self.seed_device)
+            rand_tensor = keep_prob + torch.rand(shape, generator=self.seed_generator).to(x.device)
             return (x / keep_prob) * rand_tensor
         return x
     

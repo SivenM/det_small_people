@@ -139,10 +139,11 @@ class DetrLoss(nn.Module):
         #print(f'target shape: {target_bboxes.shape}')
 
         loss_l1 = nn.functional.l1_loss(bboxes, target_bboxes, reduction='none')
-        loss_giou = 1 - torch.diag(generalized_iou(
+        iou = generalized_iou(
             to_corners(bboxes),
             to_corners(target_bboxes),
-        ))
+        )
+        loss_giou = 1 - torch.diag(iou)
         loss_l1 = loss_l1.sum() / num_bboxes
         loss_giou = loss_giou.sum() / num_bboxes
         if self.debug:
@@ -150,7 +151,7 @@ class DetrLoss(nn.Module):
             print(f'bbox loss iou: {loss_giou}')
 
         out_loss = loss_l1 * self.bbox_scale + loss_giou * self.giou_scale
-        return out_loss, loss_giou
+        return out_loss, iou
     
     def forward(self, preds, targets):
         indices = self.matcher(preds, targets)

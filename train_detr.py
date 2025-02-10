@@ -1,8 +1,9 @@
 import os
 import yaml
 from data_perp import DETRDataset, DetrLocDataset, SeqCls, LocDataLoader
-from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet, TimeSformerDet, DDBackbone, DeformableDETR
+from models.detr_zoo import DETR, DetrLoc, MyVanilaDetr, SeqDetrLoc, CCTransformerLoc, CCTransformerDet, TimeSformerDet, DeformableDETR, DefEncoderDet
 from models.transformer import DeformableTransformer
+from models import backbones
 from coaching import Coach, DetrLocCoach, LocCoach, SeqDetCoach
 import losses
 import utils
@@ -23,7 +24,7 @@ def collate_fn(batch):
     return samples, targets
 
 
-def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:str='detr', norm:bool=True, rgb:bool=False):
+def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:str='detr', norm:bool=True, r_size:list=[], mode:bool='base'):
     sample_transforms = v2.Compose([
         #transforms.ToTensor(),
         v2.Lambda(lambda x: torch.tensor(x)),
@@ -66,7 +67,7 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             path, 
             norm=norm, 
             transform=sample_transforms,
-            rgb=rgb
+            rgb=True
             )
     elif model_type == 'seq_detr_loc':
         sample_transforms = v2.Compose([
@@ -122,15 +123,19 @@ def create_dataloader(path:str, mean:list, std:list, batch_size=8, model_type:st
             transform=sample_transforms,
             mode='time',
             )
-    elif model_type == 'def_detr':
+    elif model_type == 'def_detr' or model_type == 'def_endet':
         sample_transforms = v2.Compose([
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale=True),
+            #v2.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+            v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
         dataset = DETRDataset(
             path, 
             norm=True, 
-            transform=sample_transforms
+            transform=sample_transforms,
+            size=r_size,
+            mode=mode
             )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
     return dataloader
@@ -256,17 +261,32 @@ def train(cfg:dict):
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     elif cfg['model_type'] == 'def_detr':
         coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
-        backbone = DDBackbone()
+        backbone = backbones.DDBackbone()
         transformer = DeformableTransformer(emb_dim=cfg['emb_dim'], nhead=4, 
                                             num_encoder_layers=cfg['num_encoder_blocks'], num_decoder_layers=cfg['num_decoder_blocks'])
         train_model = DeformableDETR(backbone, transformer, cfg['num_cls'], cfg['num_queries'], cfg['num_feature_levels'])
         matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
+    elif cfg['model_type'] == 'def_endet':
+        coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
+        if cfg['backbone'] == 'convnext':
+            backbone = backbones.ConvNextBackbone()
+        else:
+            backbone = backbones.DDBackbone()
+        train_model = DefEncoderDet(backbone, cfg['num_queries'], cfg['num_feature_levels'], cfg['emb_dim'], cfg['num_encoder_blocks'])
+        matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
+        loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     else:
         raise "Wrong model type."
     
-    train_dataloader = create_dataloader(cfg['train_dataset_path'], cfg['mean'], cfg['std'], cfg['train_batch_size'], cfg['model_type'], cfg['norm'], cfg['rgb'])
-    val_dataloader = create_dataloader(cfg['val_dataset_path'], cfg['mean'], cfg['std'], cfg['val_batch_size'], cfg['model_type'], cfg['norm'], cfg['rgb'])
+    train_dataloader = create_dataloader(cfg['train_dataset_path'], cfg['mean'], 
+                                        cfg['std'], cfg['train_batch_size'],
+                                        cfg['model_type'], cfg['norm'], 
+                                        cfg['r_size'], cfg['mode'])
+    val_dataloader = create_dataloader(cfg['val_dataset_path'], cfg['mean'],
+                                    cfg['std'], cfg['val_batch_size'], 
+                                    cfg['model_type'], cfg['norm'], 
+                                    cfg['r_size'], cfg['mode'])
 
     if len(cfg['from_save']):
         train_model = load_weights(cfg['from_save'], train_model)

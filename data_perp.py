@@ -397,9 +397,43 @@ class TestCropDataset(CropDataset):
         return sample, label, {'size':sample_size, 'path': data_path}    
     
 
+class Resizer:
+    def __init__(self, size):
+        self.size = size
+
+    @staticmethod
+    def _resize_coordinate(resized_img_side, coord, img_side):
+        return resized_img_side * coord / img_side
+
+    def resize_img(self, img):
+        if self.size == [] or self.size is None:
+            return img
+        else:
+            r_img = cv2.resize(img, self.size)
+            r_img = np.expand_dims(r_img, axis=-1)
+        return r_img
+    
+    def resize_coords(self, bboxes, img_size):
+        if self.size == [] or self.size is None:
+            return bboxes
+        else:
+            resized_bboxes = []
+            for bbox in bboxes:
+                resized_bboxes.append(
+                    [
+                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1])),
+                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0])),
+                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1])),
+                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0])),
+                    ]
+                )
+            return resized_bboxes
+
+
+
 class DETRDataset(Dataset):
 
-    def __init__(self, dir_path:str, norm=True, transform=None, target_transforms=None, mode:str='base') -> None:
+    def __init__(self, dir_path:str, norm=True, size=[], transform=None, target_transforms=None, mode:str='base') -> None:
         super().__init__()
         self.dir_path = dir_path
         self.norm = norm
@@ -407,6 +441,7 @@ class DETRDataset(Dataset):
         self.transform = transform
         self.target_transforms = target_transforms
         self.mode = mode #base, rgb, time
+        self.resizer = Resizer(size)
 
     def __len__(self):
         return len(self.samples)
@@ -427,6 +462,9 @@ class DETRDataset(Dataset):
             t_bboxes[:, 3] /= img_size[0]
         return t_bboxes
     
+    def to_rgb(self, sample):
+        return np.concatenate([sample, sample, sample], axis=-1)
+
     def _create_targets(self, bboxes:list, img_size:tuple) -> Tensor:
         t_bboxes = torch.tensor(bboxes, dtype=torch.float32)
         if self.norm:
@@ -443,7 +481,11 @@ class DETRDataset(Dataset):
             img_size = sample.shape[:-1]
         else:
             img_size = sample.shape[1:]
+        sample = self.resizer.resize_img(sample)
+        bboxes = self.resizer.resize_coords(bboxes, img_size)
         targets = self._create_targets(bboxes, img_size)
+        if self.mode == 'rgb':
+            sample = self.to_rgb(sample)
         if self.transform:
             sample = self.transform(np.array(sample))
             if self.mode == 'time':

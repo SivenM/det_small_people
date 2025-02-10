@@ -161,6 +161,7 @@ class Coach:
         self.clear_history()
         self.model = model.to(self.device)
         self.loss_fn = loss_fn
+        self.loss_fn.debug = self.debug
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         for epoch in tqdm(range(start_epoch, epoches)):
             t_loss, t_acc, t_iou = self.train_step(epoch, train_data)
@@ -168,6 +169,7 @@ class Coach:
                 v_loss, v_acc, v_iou = self.val_step(epoch, val_data)
             else:
                 v_loss, v_acc = 0., 0.
+            
             self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou)
             self.update_history(t_loss, v_loss, t_acc, v_acc)
             #if self.tboard:
@@ -356,7 +358,7 @@ class SeqDetCoach(Coach):
             self.optimizer.step()
             #print(loss.item())
             t_loss += loss.item()
-            t_iou += iou.item()
+            t_iou += iou.mean().item()
             progress_bar.set_postfix(
                 {
                     'train_loss': t_loss / (batch + 1),
@@ -386,7 +388,7 @@ class SeqDetCoach(Coach):
                 pred = self.model(sample)
                 loss, iou = self.loss_fn(pred, label)
                 v_loss += loss.item()
-                v_iou += iou.item()
+                v_iou += iou.mean().item()
                 progress_bar.set_postfix(
                     {
                         'val_loss': v_loss / (batch + 1),

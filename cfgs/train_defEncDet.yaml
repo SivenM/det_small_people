@@ -1,5 +1,5 @@
 # общее
-name: 'run2_en12_de12_q50'
+name: 'test_run' #'run3_en12_q5'
 save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
 from_save: ''
 
@@ -10,24 +10,25 @@ val_dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/te
 mean: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
 std: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
 norm: true
-train_batch_size: 16
-val_batch_size: 16
-rgb: false
+train_batch_size: 8
+val_batch_size: 18
+mode: 'rgb'
 max_bboxes: 5
 r_size: [224,224]
 
 # параметры модели
-model_type: "def_detr"
-num_encoder_blocks: 12
+model_type: 'def_endet'
+backbone: 'convnext'
+num_encoder_blocks: 6
 num_decoder_blocks: 12
-num_queries: 50
+num_queries: 5
 num_cls: 1
 emb_dim: 256
 img_size: [480, 640]
 num_feature_levels: 4
 
 # параметры обучения
-epoches: 200
+epoches: 100
 lr: 0.001
 tb: true
 progress_bar: true
@@ -43,5 +44,5 @@ bbox_scale: 5
 giou_scale: 2
 
 # tech
-debug: true
+debug: false
 start_epoch: 0
