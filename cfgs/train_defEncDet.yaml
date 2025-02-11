@@ -1,5 +1,5 @@
 # общее
-name: 'test_run' #'run3_en12_q5'
+name: 'run5_en6_q5'
 save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
 from_save: ''
 
@@ -39,7 +39,7 @@ cost_bbox: 5.
 cost_giou: 2.
 
 # коэффициенты лосса
-cls_scale: 1
+cls_scale: 2
 bbox_scale: 5
 giou_scale: 2
 

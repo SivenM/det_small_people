@@ -575,7 +575,8 @@ class DeformableTransformer(nn.Module):
         self.decoder = DeformableDecoder(emb_dim, num_decoder_layers, 
                                          dim_feedforward, dropout, 
                                          activation, num_feature_levels,
-                                         nhead, dec_n_points)
+                                         nhead, dec_n_points,
+                                         return_intermediate_dec)
         #if two_stage:
         #    self.enc_output = nn.Linear(emb_dim, emb_dim)
         #    self.enc_output_norm = nn.LayerNorm(emb_dim)

@@ -5,6 +5,7 @@ from torchvision.models import resnet50
 from models import layers
 from models import pos_emb_layers
 from models import transformer
+import copy
 
 # base mopdels #
 
@@ -415,7 +416,7 @@ class MyVanilaDetrV2(nn.Module):
 
 
 class DeformableDETR(nn.Module):
-    def __init__(self, backbone, transformer, num_classes, num_queries, num_feature_levels):
+    def __init__(self, backbone, transformer:transformer.DeformableTransformer, num_classes, num_queries, num_feature_levels, aux_loss=True):
         super().__init__()
         self.num_queries = num_queries
         self.num_classes = num_classes
@@ -443,7 +444,12 @@ class DeformableDETR(nn.Module):
         self.transformer = transformer
         self.query = nn.Embedding(num_queries, hidden_dim)
         self.pos_query = nn.Embedding(num_queries, hidden_dim)
-
+        num_pred = transformer.decoder.num_blocks + 1
+        self.aux_loss= aux_loss
+        if aux_loss:
+            self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
+            self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
+    
     def forward(self, sample):
         features, pos = self.backbone(sample)
 
@@ -451,12 +457,38 @@ class DeformableDETR(nn.Module):
         for layer_num, feat in enumerate(features):
             srcs.append(self.input_proj[layer_num](feat))
 
-        t_feats, _, __ = self.transformer(srcs, pos, self.query, self.pos_query)
-        
+        t_feats, init_reference, inter_references = self.transformer(srcs, pos, self.query, self.pos_query)
+        outputs_classes = []
+        outputs_coords = []
+        for lvl in range(t_feats.shape[0]):
+            if lvl == 0:
+                reference = init_reference
+            else:
+                reference = inter_references[lvl - 1]
+            reference = layers.inverse_sigmoid(reference)
+            outputs_class = self.class_embed[lvl](t_feats[lvl]).squeeze(-1)
+            tmp = self.bbox_embed[lvl](t_feats[lvl])
+            if reference.shape[-1] == 4:
+                tmp += reference
+            else:
+                assert reference.shape[-1] == 2
+                tmp[..., :2] += reference
+            outputs_coord = tmp.sigmoid()
+            outputs_classes.append(outputs_class)
+            outputs_coords.append(outputs_coord)
+        outputs_class = torch.stack(outputs_classes)
+        outputs_coord = torch.stack(outputs_coords)
         #preds
-        logits = self.class_embed(t_feats).squeeze(-1)
-        bboxes = self.bbox_embed(t_feats)
-        return {'bbox': bboxes, 'logits': logits}
+        #logits = self.class_embed(t_feats).squeeze(-1)
+        #bboxes = self.bbox_embed(t_feats)
+        out = {'bbox': outputs_coord[-1], 'logits': outputs_class[-1]}
+        if self.aux_loss:
+            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+        return out
+    
+    @torch.jit.unused
+    def _set_aux_loss(self, outputs_class, outputs_coord):
+        return [{'logits':a, 'bbox':b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
     
 
 class DefEncoderDet(nn.Module):
@@ -521,7 +553,7 @@ class DefEncoderDet(nn.Module):
         for layer_num, feat in enumerate(features):
             srcs.append(self.input_proj[layer_num](feat))
         src_flatten, lvl_pos_embed_flatten, spatial_shapes, level_start_index = self.prepare_input_features(srcs, pos)
-        t_feats, _ = self.transformer(src_flatten, spatial_shapes, level_start_index, lvl_pos_embed_flatten)
+        t_feats, _ = self.transformer(src_flatten, spatial_shapes, level_start_index, None)
 
         x = self.norm(t_feats)
         x = self.seq_pool(x)
@@ -536,3 +568,79 @@ class DefEncoderDet(nn.Module):
 
         logits = self.cls_head(x)
         return {'bbox': bboxes, 'logits': logits} 
+    
+
+class DefEncoderCls(nn.Module):
+    
+    def __init__(self, backbone, num_cls:int=1, num_feature_levels:int=4, emb_dim:int=256, num_blocks:int=1, stochastic_depth_rate:float=0.1):
+        super().__init__()
+        self.num_feature_levels = num_feature_levels
+        hidden_dim = emb_dim
+        self.level_embed = nn.Parameter(torch.Tensor(num_feature_levels, emb_dim))
+        if num_feature_levels > 1:
+            num_backbone_outs = 4
+            input_proj_list = []
+            for _ in range(num_backbone_outs):
+                in_channels = backbone.num_channels[_]
+                input_proj_list.append(nn.Sequential(
+                    nn.Conv2d(in_channels, hidden_dim, kernel_size=1),
+                    nn.GroupNorm(16, hidden_dim),
+                ))
+            for _ in range(num_feature_levels - num_backbone_outs):
+                input_proj_list.append(nn.Sequential(
+                    nn.Conv2d(in_channels, hidden_dim, kernel_size=3, stride=2, padding=1),
+                    nn.GroupNorm(16, hidden_dim),
+                ))
+                in_channels = hidden_dim
+            self.input_proj = nn.ModuleList(input_proj_list)
+        self.backbone = backbone
+        self.transformer = transformer.DeformableEncoder(emb_dim, num_blocks, stochastic_depth_rate)
+        self.norm = nn.LayerNorm(emb_dim)
+        self.seq_pool = layers.SeqPool(emb_dim)
+        
+        #loc head
+        self.cls_head = nn.Linear(hidden_dim, num_cls)
+
+    def prepare_input_features(self, srcs, pos_embeds):
+        src_flatten = []
+        lvl_pos_embed_flatten = []
+        spatial_shapes = []
+        for lvl, (src, pos_embed) in enumerate(zip(srcs, pos_embeds)):
+            bs, c, h, w = src.shape
+            spatial_shape = (h, w)
+            spatial_shapes.append(spatial_shape)
+            src = src.flatten(2).transpose(1, 2)
+            pos_embed = pos_embed.flatten(2).transpose(1, 2)
+            lvl_pos_embed = pos_embed + self.level_embed[lvl].view(1, 1, -1)
+            lvl_pos_embed_flatten.append(lvl_pos_embed)
+            src_flatten.append(src)
+        src_flatten = torch.cat(src_flatten, 1)
+        lvl_pos_embed_flatten = torch.cat(lvl_pos_embed_flatten, 1)
+        spatial_shapes = torch.as_tensor(spatial_shapes, dtype=torch.long, device=src_flatten.device)
+        level_start_index = torch.cat((spatial_shapes.new_zeros((1, )), spatial_shapes.prod(1).cumsum(0)[:-1]))
+        return src_flatten, lvl_pos_embed_flatten, spatial_shapes, level_start_index
+
+    def forward(self, sample):
+        features, pos = self.backbone(sample)
+        srcs = []
+        for layer_num, feat in enumerate(features):
+            srcs.append(self.input_proj[layer_num](feat))
+        
+        src_flatten, lvl_pos_embed_flatten, spatial_shapes, level_start_index = self.prepare_input_features(srcs, pos)
+        #print(f'src_flatten:{src_flatten}')
+        #print(f'\nlvl_pos_embed_flatten:{lvl_pos_embed_flatten}')
+        #print(f'\nspatial_shapes:{spatial_shapes}')
+        #print(f'\nlevel_start_index:{level_start_index}')
+        t_feats, _ = self.transformer(src_flatten, spatial_shapes, level_start_index, None)
+
+        x = self.norm(t_feats)
+        x = self.seq_pool(x)
+        
+
+        logits = self.cls_head(x)
+        return logits 
+
+
+
+def _get_clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])

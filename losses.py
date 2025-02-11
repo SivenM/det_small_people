@@ -23,7 +23,6 @@ class HungarianMatcher(nn.Module):
     @torch.no_grad()
     def forward(self, preds:dict, targets:dict):
         batch_size, num_queries = preds['bbox'].shape[:2]
-
         if self.conf_type == 'softmax':
             out_conf = preds['logits'].flatten(0, 1).softmax(-1)
         elif self.conf_type == 'sigmoid':
@@ -154,7 +153,8 @@ class DetrLoss(nn.Module):
         return out_loss, iou
     
     def forward(self, preds, targets):
-        indices = self.matcher(preds, targets)
+        preds_without_aux = {k: v for k, v in preds.items() if k != 'aux_outputs'}
+        indices = self.matcher(preds_without_aux, targets)
         num_bboxes = sum(len(t['labels']) for t in targets)
         c_loss = self.loss_cls(preds, targets, indices, num_bboxes)
         b_loss, iou = self.loss_bbox(preds, targets, indices, num_bboxes)
@@ -163,6 +163,13 @@ class DetrLoss(nn.Module):
             print(f'bbox loss: {b_loss}')
 
         losses = c_loss + b_loss
+        if 'aux_outputs' in preds:
+            for i, aux_outputs in enumerate(preds['aux_outputs']):
+                indices = self.matcher(aux_outputs, targets)
+                c_loss = self.loss_cls(preds, targets, indices, num_bboxes)
+                b_loss, iou = self.loss_bbox(preds, targets, indices, num_bboxes)
+                aux_loss = c_loss + b_loss
+                losses = aux_loss
         return losses, iou
 
 

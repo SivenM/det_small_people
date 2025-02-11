@@ -261,10 +261,14 @@ def train(cfg:dict):
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     elif cfg['model_type'] == 'def_detr':
         coach = SeqDetCoach(cfg['name'], cfg['save_dir'], tboard=cfg['tb'], debug=cfg['debug'], progress_bar=cfg['progress_bar'])
-        backbone = backbones.DDBackbone()
+        if cfg['backbone'] == 'convnext':
+            backbone = backbones.ConvNextBackbone()
+        else:
+            backbone = backbones.DDBackbone()
         transformer = DeformableTransformer(emb_dim=cfg['emb_dim'], nhead=4, 
-                                            num_encoder_layers=cfg['num_encoder_blocks'], num_decoder_layers=cfg['num_decoder_blocks'])
-        train_model = DeformableDETR(backbone, transformer, cfg['num_cls'], cfg['num_queries'], cfg['num_feature_levels'])
+                                            num_encoder_layers=cfg['num_encoder_blocks'], num_decoder_layers=cfg['num_decoder_blocks'],
+                                            return_intermediate_dec=True)
+        train_model = DeformableDETR(backbone, transformer, cfg['num_cls'], cfg['num_queries'], cfg['num_feature_levels'], cfg['aux_loss'])
         matcher = losses.HungarianMatcher(cfg['cost_class'], cfg['cost_bbox'], cfg['cost_giou'])
         loss_fn = losses.DetrLoss(cfg['num_cls'], matcher, cfg['cls_scale'], cfg['bbox_scale'], cfg['giou_scale'])
     elif cfg['model_type'] == 'def_endet':

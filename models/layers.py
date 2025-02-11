@@ -867,27 +867,27 @@ class DfAttn(nn.Module):
         sampling_locations = reference_points + sampling_offsets # (N, Len_q, num_heads, num_levels, num_points, 2)
 
         offset_normalizer = torch.stack([input_spatial_shapes[..., 1], input_spatial_shapes[..., 0]], -1)
-        print(f'{offset_normalizer.shape=}')
+        #print(f'{offset_normalizer.shape=}')
         #print(f'{a.shape=}')
         #sampling_locations = reference_points[:, :, None, :, None, :] + a
         #sampling_locations = reference_points[:, :, None, :, None, :] \
         #                    + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
         # Преобразуем sampling_locations в индексы для grid_sample
         #reference_points = reference_points[:, :, None, :, None, :] # (N, Len_q, 1, num_levels, 1, 2)
-        print(f'{sampling_offsets.shape=}')
-        print(f'{reference_points.shape=}')
+        #print(f'{sampling_offsets.shape=}')
+        #print(f'{reference_points.shape=}')
         a = sampling_offsets / offset_normalizer[None, None, None, :, None, :]
-        print(f'{a.shape=}')
+        #print(f'{a.shape=}')
         sampling_locations = reference_points + a #
-        print(f'{sampling_locations.max()=}')
-        print(f'{sampling_locations.min()=}')
+        #print(f'{sampling_locations.max()=}')
+        #print(f'{sampling_locations.min()=}')
         N_, _, M_, D_ = value.shape
         _, Lq_, M_, L_, P_, _ = sampling_locations.shape
-        print(f'{value.shape=}')
+        #print(f'{value.shape=}')
         value_list = value.split([H_ * W_ for H_, W_ in input_spatial_shapes], dim=1)
-        print('val list:')
-        for val in value_list:
-            print(f'\tval: {val.shape}')
+        #print('val list:')
+        #for val in value_list:
+        #    print(f'\tval: {val.shape}')
         sampling_grids = 2 * sampling_locations - 1  # Нормализация в диапазон [-1, 1]
         sampling_value_list = []
         for lid_, (H_, W_) in enumerate(input_spatial_shapes):
@@ -900,14 +900,14 @@ class DfAttn(nn.Module):
             # N_*M_, D_, Lq_, P_
             sampling_value_l_ = F.grid_sample(value_l_, sampling_grid_l_,
                                               mode='bilinear', padding_mode='zeros', align_corners=False)
-            print(f'{sampling_grid_l_.shape=}')
+            #print(f'{sampling_grid_l_.shape=}')
             sampling_value_list.append(sampling_value_l_)
             #print('\n')
         # (N_, Lq_, M_, L_, P_) -> (N_, M_, Lq_, L_, P_) -> (N_, M_, 1, Lq_, L_*P_)
         attention_weights = attention_weights.transpose(1, 2).reshape(N_ * M_, 1, Lq_, L_ * P_)
         output = (torch.stack(sampling_value_list, dim=-2).flatten(-2) * attention_weights).sum(-1).view(N_, M_ * D_, Lq_)
         output = output.transpose(1, 2).contiguous()
-        print(f'output: {output.shape}')
+        #print(f'output: {output.shape}')
         output = self.output_proj(output)
         return output
 
@@ -984,8 +984,14 @@ class StochasticDepth(nn.Module):
         return x
     
 
-
 def _is_power_of_2(n):
     if (not isinstance(n, int)) or (n < 0):
         raise ValueError("invalid input for _is_power_of_2: {} (type: {})".format(n, type(n)))
     return (n & (n-1) == 0) and n != 0
+
+
+def inverse_sigmoid(x, eps=1e-5):
+    x = x.clamp(min=0, max=1)
+    x1 = x.clamp(min=eps)
+    x2 = (1 - x).clamp(min=eps)
+    return torch.log(x1/x2)

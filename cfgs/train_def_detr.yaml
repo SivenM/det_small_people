@@ -1,5 +1,5 @@
 # общее
-name: 'run2_en12_de12_q50'
+name: 'run4_en2_dec2_q25' #'test_run' #'run2_en3_de3_q25'
 save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
 from_save: ''
 
@@ -12,19 +12,21 @@ std: [0.5, 0.5, 0.5] #[0.5, 0.5, 0.5, 0.5, 0.5, 0.5,0.5, 0.5, 0.5, 0.5]
 norm: true
 train_batch_size: 16
 val_batch_size: 16
-rgb: false
+mode: 'rgb'
 max_bboxes: 5
 r_size: [224,224]
 
 # параметры модели
 model_type: "def_detr"
-num_encoder_blocks: 12
-num_decoder_blocks: 12
-num_queries: 50
+backbone: 'convnext'
+num_encoder_blocks: 2
+num_decoder_blocks: 2
+num_queries: 25
 num_cls: 1
 emb_dim: 256
 img_size: [480, 640]
 num_feature_levels: 4
+aux_loss: true
 
 # параметры обучения
 epoches: 200
@@ -33,15 +35,15 @@ tb: true
 progress_bar: true
 
 # коэффициенты матчера
-cost_class: 1.
+cost_class: 2.
 cost_bbox: 5.
 cost_giou: 2.
 
 # коэффициенты лосса
-cls_scale: 1
+cls_scale: 2
 bbox_scale: 5
 giou_scale: 2
 
 # tech
-debug: true
+debug: false
 start_epoch: 0
