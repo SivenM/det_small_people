@@ -391,6 +391,7 @@ class DeformableEncoderBlock(nn.Module):
     def __init__(self, dpr, emb_dim=256, n_lvls=4, n_heads=8, n_points=4, dropout_prob=0.1) -> None:
         super().__init__()
         self.self_att = layers.DfAttn(emb_dim, n_lvls, n_heads, n_points)
+        self.self_att = layers.MSDeformAttn(emb_dim, n_lvls, n_heads, n_points)
         self.dropout_1 = nn.Dropout(dropout_prob)
         self.norm1 = nn.LayerNorm(emb_dim)
 

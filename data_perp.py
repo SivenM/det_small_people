@@ -565,8 +565,8 @@ class DetrLocDatasetTest(DetrLocDataset):
 
 class DETRDatasetTest(DETRDataset):
 
-    def __init__(self, dir_path: str, norm=True, transform=None, target_transforms=None, rgb: bool = False) -> None:
-        super().__init__(dir_path, norm, transform, target_transforms, rgb)
+    def __init__(self, dir_path: str, norm=True, size=[], transform=None, target_transforms=None, mode:str='base') -> None:
+        super().__init__(dir_path, norm, size, transform, target_transforms, mode=mode)
 
     def _create_targets(self, bboxes:list, img_size:tuple) -> Tensor:
         t_bboxes = torch.tensor(bboxes, dtype=torch.float32)
@@ -583,10 +583,14 @@ class DETRDatasetTest(DETRDataset):
             img_size = sample.shape[:-1]
         else:
             img_size = sample.shape[1:]
+        sample = self.resizer.resize_img(sample)
+        bboxes = self.resizer.resize_coords(bboxes, img_size)
         t_bboxes, t_labels = self._create_targets(bboxes, img_size)
+        if self.mode == 'rgb':
+            sample = self.to_rgb(sample)
         if self.transform:
             t_sample = self.transform(np.array(sample))
-        return sample, t_sample, bboxes, t_bboxes, t_labels, {'path': sample_name, 'size': sample.shape[1:]}
+        return sample, t_sample, bboxes, t_bboxes, t_labels, {'path': sample_name, 'size': sample.shape}
 
 ###############################################################################################################
 

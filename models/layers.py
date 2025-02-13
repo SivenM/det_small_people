@@ -445,18 +445,20 @@ class MSDeformAttn(nn.Module):
             wb = wb[..., None]  # (N, Len_q, num_heads, num_points, 1)
             wc = wc[..., None]  # (N, Len_q, num_heads, num_points, 1)
             wd = wd[..., None]  # (N, Len_q, num_heads, num_points, 1)
-
+            print(f'lvl: {level_value.shape}')
             # Извлекаем значения для каждой точки
-            #value_a = level_value[:, y0, x0, :, :]  # (N, Len_q, num_heads, head_dim)
-            #value_b = level_value[:, y1, x0, :, :]  # (N, Len_q, num_heads, head_dim)
-            #value_c = level_value[:, y0, x1, :, :]  # (N, Len_q, num_heads, head_dim)
-            #value_d = level_value[:, y1, x1, :, :]  # (N, Len_q, num_heads, head_dim)
-
+            value_a = level_value[:, y0, x0, :, :] 
+            print(f'{y0.shape=}')
+            print(f'{value_a.shape=}')
+            value_b = level_value[:, y1, x0, :, :]  # (N, Len_q, num_heads, head_dim)
+            value_c = level_value[:, y0, x1, :, :]  # (N, Len_q, num_heads, head_dim)
+            value_d = level_value[:, y1, x1, :, :]  # (N, Len_q, num_heads, head_dim)
+            print(value_b.shape)
             # Приводим value_a, value_b, value_c, value_d к размерности (N, Len_q, num_heads, num_points, head_dim)
-            value_a = level_value[:, y0, x0, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
-            value_b = level_value[:, y1, x0, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
-            value_c = level_value[:, y0, x1, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
-            value_d = level_value[:, y1, x1, :, :].unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_a = value_a.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_b = value_b.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_c = value_c.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
+            value_d = value_d.unsqueeze(3).expand(-1, -1, -1, self.num_points, -1)
 
             # Взвешенное суммирование
             output[:, :, :, level * self.num_points:(level + 1) * self.num_points, :] += (

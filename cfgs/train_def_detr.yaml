@@ -1,5 +1,5 @@
 # общее
-name: 'run4_en2_dec2_q25' #'test_run' #'run2_en3_de3_q25'
+name: 'test_run', #'run4_en2_dec2_q25' #'test_run' #'run2_en3_de3_q25'
 save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
 from_save: ''
 

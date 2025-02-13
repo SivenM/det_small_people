@@ -13,7 +13,7 @@ class ConvNextBackbone(nn.Module):
                                            pretrained=pretrained,
                                            features_only=features_only,
                                            )
-        self.conv_next.eval()
+        #self.conv_next.eval()
         self.num_channels = [80,160,320,640]
         self.pos_embs = nn.ModuleList([
                         pos_emb_layers.PositionEmbeddingLearned(),

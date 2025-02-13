@@ -526,6 +526,21 @@ class DefEncoderDet(nn.Module):
         self.w = nn.Linear(emb_dim, num_queries)
         self.h = nn.Linear(emb_dim, num_queries)
         self.cls_head = nn.Linear(hidden_dim, num_queries)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+        #for m in self.transformer():
+        #    if isinstance(m, DfAttn):
+        #        m._reset_parameters()
+        #if not self.two_stage:
+        #    xavier_uniform_(self.reference_points.weight.data, gain=1.0)
+        #    constant_(self.reference_points.bias.data, 0.)
+        torch.nn.init.normal_(self.level_embed)
+
+
 
     def prepare_input_features(self, srcs, pos_embeds):
         src_flatten = []
@@ -553,7 +568,7 @@ class DefEncoderDet(nn.Module):
         for layer_num, feat in enumerate(features):
             srcs.append(self.input_proj[layer_num](feat))
         src_flatten, lvl_pos_embed_flatten, spatial_shapes, level_start_index = self.prepare_input_features(srcs, pos)
-        t_feats, _ = self.transformer(src_flatten, spatial_shapes, level_start_index, None)
+        t_feats, _ = self.transformer(src_flatten, spatial_shapes, level_start_index, lvl_pos_embed_flatten)
 
         x = self.norm(t_feats)
         x = self.seq_pool(x)

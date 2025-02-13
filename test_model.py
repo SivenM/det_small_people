@@ -1,5 +1,5 @@
 from data_perp import TestCropDataset, DETRDataset, DetrLocDatasetTest, DETRDatasetTest
-from models import transformer, detr_zoo
+from models import transformer, detr_zoo, backbones
 import utils
 
 import os
@@ -189,8 +189,9 @@ class DetTester:
         #for i, (sample, sample_np, gt, gt_norm, meta) in tqdm(enumerate(self.dataset), desc='testing'):
         print(len(self.dataset))
         sample_np, t_sample, gt_bboxes, t_bboxes_norm, t_labels, meta = self.dataset[120]
+        print(sample_np.shape)
         pred = model(t_sample.unsqueeze(0))
-        assert type(pred) == dict, f'pred must be dist with keys "bbox" and "logits"'
+        #assert type(pred) == dict, f'pred must be dist with keys "bbox" and "logits"'
         print(meta['size'])
         bboxes = self._denorm(pred['bbox'].clone(), (480, 640))
         
@@ -215,10 +216,15 @@ class DetTester:
         color_denorm = (0,255,0)
         if sample_np.shape[-1] == 1:
             img = sample_np[:,:,0]
+            img_gt = np.stack([img,img,img], axis=-1)
+            img_dn = np.stack([img,img,img], axis=-1)
+        elif sample_np.shape[-1] == 3:
+            img_gt = sample_np.copy()
+            img_dn = sample_np.copy()
         else:
             img = sample_np[-1].copy()
-        img_gt = np.stack([img,img,img], axis=-1)
-        img_dn = np.stack([img,img,img], axis=-1)
+            img_gt = np.stack([img,img,img], axis=-1)
+            img_dn = np.stack([img,img,img], axis=-1)
         bboxes_corner = utils.to_corners(bboxes) 
         gt_corners = utils.to_corners(torch.tensor(gt_bboxes))
         for box in gt_corners:
@@ -269,6 +275,14 @@ class TestModel:
                 patch_size=model_params['patch_size'], C=model_params['num_imgs'], 
                 max_seq=model_params['max_seq']
         )
+        elif model_type == 'def_endet':
+            backbone = backbones.ConvNextBackbone()
+            self.model = detr_zoo.DefEncoderDet(backbone,
+                                                model_params['num_queries'],
+                                                model_params['num_feature_levels'],
+                                                model_params['emb_dim'],
+                                                model_params['num_encoder_blocks'],
+                                                )
         else:
             raise 'Wrong model type. Only: vit, detr, detr_loc'
         self._load_model()
@@ -332,6 +346,19 @@ def load_dataset(dataset_path:str, model_type:str):
             norm=True, 
             transform=sample_transforms
             )
+    elif model_type == 'def_endet':
+        sample_transforms = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+            v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+        dataset = DETRDatasetTest(
+            dataset_path, 
+            norm=True, 
+            transform=sample_transforms,
+            mode='rgb',
+            size=[224,224]
+            )
     else:
         raise 'Wrong model type. Only: vit, detr, detr_loc'
     return dataset
@@ -344,10 +371,10 @@ def create_tester(dataset:Dataset, model_type:str, save_dir:str):
         return DetrLocTester(dataset, save_dir)
     elif model_type == 'detr':
         pass
-    elif model_type == 'seq_det' or model_type == 'seq_det_one_frame':
+    elif model_type == 'seq_det' or model_type == 'seq_det_one_frame' or model_type == 'def_endet':
         return  DetTester(dataset, save_dir)
     else:
-        raise 'Wrong model type. Only: vit, detr, detr_loc'
+        raise TypeError('Wrong model type. Only: vit, detr, detr_loc')
 
 
 def main(config:dict) -> None:

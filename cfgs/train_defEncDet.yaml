@@ -1,5 +1,5 @@
 # общее
-name: 'run5_en6_q5'
+name: test_run #'run5_en6_q5'
 save_dir: "/home/max/ieos/small_obj/vid_pred/runs/def_detr/"
 from_save: ''
 

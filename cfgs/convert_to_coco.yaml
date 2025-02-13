@@ -1,0 +1,4 @@
+dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/test_1_frame_v2"
+save_dir: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/coco_test_1_frame_v2"
+resize: [224, 224]
+mode: rgb
