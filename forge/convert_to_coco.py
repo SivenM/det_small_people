@@ -35,10 +35,10 @@ class Resizer:
             for bbox in bboxes:
                 resized_bboxes.append(
                     [
-                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1])),
-                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0])),
-                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1])),
-                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0])),
+                        self._resize_coordinate(self.size[1], bbox[0], img_size[1]),
+                        self._resize_coordinate(self.size[0], bbox[1], img_size[0]),
+                        self._resize_coordinate(self.size[1], bbox[2], img_size[1]),
+                        self._resize_coordinate(self.size[0], bbox[3], img_size[0]),
                     ]
                 )
             return resized_bboxes
@@ -61,7 +61,11 @@ class AnnWorker:
                     {
                         "id": curr_num_ids,
                         "image_id": image_id,
-                        "bbox": bbox
+                        "bbox": bbox, 
+                        "category_id": 1, # в дальнейшем при появлении доп классов улучшить
+                        "area": bbox[-1] * bbox[-2],
+                        "iscrowd": 0,
+                        "segmentation": None
                     }
                 )
         except IndexError as e:
@@ -177,6 +181,8 @@ class ConvertToCoco:
 
 
 def main(config:dict):
+    dataset_name = config['dataset_path'].split('/')[-1]
+    print(f'dataset name: {dataset_name}')
     converter = ConvertToCoco(config['save_dir'], config['resize'], config['mode'])
     converter(config['dataset_path'])
 
