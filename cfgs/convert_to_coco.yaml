@@ -1,4 +1,4 @@
-dataset_path: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/train_1_frame_v2"
-save_dir: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/coco_train_1_frame_v2"
+dataset_path: "/home/max/ieos/small_obj/vid_pred/data/stroika/test"
+save_dir: "/home/max/ieos/small_obj/vid_pred/data/stroika/coco_test"
 resize: []
 mode: rgb
