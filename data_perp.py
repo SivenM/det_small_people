@@ -592,6 +592,43 @@ class DETRDatasetTest(DETRDataset):
             t_sample = self.transform(np.array(sample))
         return sample, t_sample, bboxes, t_bboxes, t_labels, {'path': sample_name, 'size': sample.shape}
 
+
+class CocoTestDataset(Dataset):
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        self.images_dir = os.path.join(path, 'images')
+        self.ann_path = os.path.join(path, 'annotations.json')
+        self.ann = utils.load_json(self.ann_path)
+
+    def __len__(self):
+        return len(self.ann['images'])
+
+    def load_img(self, file_name:str) -> np.ndarray:
+        """
+        return (H, W, 3)
+        """
+        path = os.path.join(self.images_dir, file_name)
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        return img
+
+    def get_targets(self, image_id:str) -> np.ndarray: 
+        """
+        return bboxes (N, 4)
+        """
+        bboxes = []
+        for ann in self.ann['annotations']:
+            if ann['image_id'] == image_id:
+                bboxes.append(ann['bbox'])
+        return np.array(bboxes)
+
+    def __getitem__(self, index):
+        img_data = self.ann['images'][index]
+        img = self.load_img(img_data['file_name'])
+        targets = self.get_targets(img_data['id'])
+        return img, targets, img_data
+
 ###############################################################################################################
 
 
