@@ -92,8 +92,7 @@ class Tester:
             tr_scores = scores[scores > 0.01]
             tr_labels = labels[0][scores > 0.01]
             tr_bboxes = bboxes[0][scores > 0.01]
-            acc, prec, recall, iou = calc_det_metrics(tr_bboxes, tr_labels, tr_scores, targets)
-            metrics['acc'].append(acc)
+            iou, prec, recall = calc_det_metrics(tr_bboxes, targets)
             metrics['precission'].append(prec)
             metrics['recall'].append(recall)
             metrics['iou'].append(iou)
@@ -104,23 +103,21 @@ class Tester:
                 'width': meta['width'],
                 'height': meta['height']
                 }
-            self.metric_logger.log(i, meta['file_name'], acc, prec, recall, iou)
+            self.metric_logger.log(i, meta['file_name'], prec, recall, iou)
             draw_image = vis.show_img_pred(image, tr_bboxes)
             if self.save_vis:
                 self.save_img(draw_image, meta['file_name'])
             
-        m_acc = sum(metrics['acc']) / len(metrics['acc'])
         m_precission = sum(metrics['precission']) / len(metrics['precission'])
         m_recall = sum(metrics['recall']) / len(metrics['recall'])
         m_iou = sum(metrics['iou']) / len(metrics['iou'])
         results = {
             'num_images': len(dataset),
-            'm_acc': m_acc,
             'm_precission': m_precission,
             'm_reacall': m_recall,
             'm_iou': m_iou
         }
-        vis.bar(['acc', 'precission', 'recall', 'iou'], m_acc, m_precission, m_recall, m_iou)
+        vis.bar(['precission', 'recall', 'iou'], m_precission, m_recall, m_iou)
         utils.save_json(preds, self.preds_path)
         utils.save_json(results, self.results_path)
 
