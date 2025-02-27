@@ -594,9 +594,10 @@ class DETRDatasetTest(DETRDataset):
 
 
 class CocoTestDataset(Dataset):
-    def __init__(self, path):
+    def __init__(self, path, size=[]):
         super().__init__()
         self.path = path
+        self.resizer = Resizer(size)
         self.images_dir = os.path.join(path, 'images')
         self.ann_path = os.path.join(path, 'annotations.json')
         self.ann = utils.load_json(self.ann_path)
@@ -613,6 +614,14 @@ class CocoTestDataset(Dataset):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return img
 
+    def convert_to_xyxy(self, bbox):
+        return [
+                bbox[0],
+                bbox[1],
+                bbox[0] + bbox[2],
+                bbox[1] + bbox[3],
+                ]
+
     def get_targets(self, image_id:str) -> np.ndarray: 
         """
         return bboxes (N, 4)
@@ -620,14 +629,17 @@ class CocoTestDataset(Dataset):
         bboxes = []
         for ann in self.ann['annotations']:
             if ann['image_id'] == image_id:
-                bboxes.append(ann['bbox'])
+                bboxes.append(self.convert_to_xyxy(ann['bbox']))
         return np.array(bboxes)
 
     def __getitem__(self, index):
         img_data = self.ann['images'][index]
         img = self.load_img(img_data['file_name'])
+        img_size = img.shape[:-1]
         targets = self.get_targets(img_data['id'])
-        return img, targets, img_data
+        img = self.resizer.resize_img(img)
+        targets = self.resizer.resize_coords(targets, img_size)
+        return img, targets, {'file_name': img_data['filename'], 'width': img.shape[1], 'height': img.shape[0]}
 
 ###############################################################################################################
 
