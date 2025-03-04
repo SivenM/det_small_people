@@ -1,0 +1,4 @@
+model: "/home/max/ieos/small_obj/vid_pred/rt-detr.onnx"
+dataset: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/coco_train_1_frame_v2"
+img_size: [224,224]
+save_dir: "test_results/debug"

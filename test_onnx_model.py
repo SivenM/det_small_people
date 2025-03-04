@@ -8,6 +8,9 @@ from data_perp import CocoTestDataset
 import utils
 import visualizer as vis
 from metrics import calc_det_metrics
+import argparse
+import yaml
+from loguru import logger
 
 
 class CSVMetricLogger:
@@ -25,8 +28,9 @@ class CSVMetricLogger:
 
 
 class InferModel:
-    def __init__(self, path:str):
+    def __init__(self, path:str, size):
         self.model_path = path
+        self.size = np.array([size])
         self._load(path)
 
     def _load(self, path:str):
@@ -41,14 +45,14 @@ class InferModel:
         if len(image.shape) == 2 or image.shape[-1] == 1:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img = image.transpose((2, 0, 1))
-        img = np.expand_dims(image, 0)
+        img = np.expand_dims(img, 0)
         img = img.astype(np.float32)
         img /= 255
         return img
     
-    def __call__(self, image:np.ndarray, size:tuple) -> tuple[np.ndarray]:
+    def __call__(self, image:np.ndarray) -> tuple[np.ndarray]:
         image = self.preproc_image(image)
-        outputs = self.model.run(None, {self.in_img:image, self.in_shape:np.array([size])})
+        outputs = self.model.run(None, {self.in_img:image, self.in_shape:self.size})
         return outputs
     
 
@@ -62,8 +66,9 @@ class Tester:
             save_dir = 'test_results/test_onnx'
         
         self.save_dir = save_dir
-        self.preds_path = os.path.join(save_dir, 'preds')
+        self.preds_path = os.path.join(save_dir, 'preds.json')
         self.images_dir = os.path.join(save_dir, 'images')
+        self.vis_metrics_dir = os.path.join(save_dir, 'vis_metrics')
         self.results_path = os.path.join(save_dir, 'results.json')
         self._create_dirs()
         self.metric_logger = CSVMetricLogger(save_dir)
@@ -71,8 +76,7 @@ class Tester:
     def _create_dirs(self):
         utils.mkdir(self.save_dir)
         utils.mkdir(self.images_dir)
-        utils.mkdir(self.preds_path)
-
+        utils.mkdir(self.vis_metrics_dir)
 
     def save_img(self, img:np.ndarray, filename:str):
         save_path = os.path.join(self.images_dir, filename)
@@ -81,8 +85,8 @@ class Tester:
     def _get_bbox_data(self, bboxes:np.ndarray) -> dict :
         x1, x2 = bboxes[:, 0], bboxes[:,2]
         y1, y2 = bboxes[:, 1], bboxes[:,3]
-        widths = x1 + x2
-        heights = y1 + y2
+        widths = x2-x1
+        heights = y2-y1
         squares = widths * heights
         return {'widths': widths, 'heights': heights, 'squares': squares}
 
@@ -100,6 +104,7 @@ class Tester:
             self.bbox_data['min_height'] = curr_bbox_data['heights'].min()
         if self.bbox_data['max_height'] < curr_bbox_data['heights'].max():
             self.bbox_data['max_height'] = curr_bbox_data['heights'].max()
+        return {k:v.tolist() for k, v in curr_bbox_data.items()}
         
     def print_results(self, results:dict):
         print('=================================')
@@ -120,6 +125,38 @@ class Tester:
         print('=================================')
         print(f'Подробенее смотри в {self.save_dir}')
 
+    def draw_metrics(self, metrics:dict, preds:dict):
+        print('Vis metrics')
+        assert len(metrics['iou']) == len(preds), print(f'len iou: {metrics['iou']} != len preds: {len(preds)}')
+        for metric_name, metric_data in metrics.items():
+            if len(metric_data) > 0:
+                y_metric = []
+                x_data = {
+                    'aspect_ratio': [],
+                    'width': [],
+                    'height': [],
+                    'square': [],
+                } 
+                assert len(metric_data) == len(preds), logger.error(f'metric data :{len(metric_data)} != len preds: {len(preds)}')
+                for i, (_, pred_data) in enumerate(preds.items()):
+                    bbox_data = pred_data['bbox_data']
+                    x_data['width'] += bbox_data['widths']
+                    x_data['height'] += bbox_data['heights']
+                    x_data['square'] += bbox_data['squares']
+                    x_data['aspect_ratio'] += [w/h for w,h in zip(bbox_data['widths'], bbox_data['heights'])]
+                    #try:
+                    y_metric += [metric_data[i] for _ in range(len(bbox_data['widths']))]
+                    #except IndexError as e:
+                    #    logger.error(f'num metrics data: {len(metric_data)}, num preds: {len(preds)}, i: {i}')
+                for x_name, x_data in x_data.items():
+                    save_path = os.path.join(self.vis_metrics_dir, f'{metric_name}_{x_name}.png')
+                    vis.scatter_metric(x_data, y_metric, x_name, metric_name, save_path=save_path)
+        print('Done!\n')
+        
+    def draw_overall_metrics(self, x:list, y:list):
+        save_path = os.path.join(self.vis_metrics_dir, 'overall_metrics.png')
+        vis.bar(x, y, save_path=save_path)
+
     def run(self, model:ort.InferenceSession, dataset:CocoTestDataset, tr:float=0.1) ->None:
         self.bbox_data = {
             'min_square':10000,
@@ -127,7 +164,7 @@ class Tester:
             'min_width':10000,
             'max_width':0,
             'min_height':10000,
-            'max_hieght':0,
+            'max_height':0,
         }
         preds = {}
         metrics = {
@@ -136,40 +173,43 @@ class Tester:
             'recall': [],
             'iou': []
         }
-        for i, (image, targets, meta) in tqdm(enumerate(dataset)):
+        for i, (image, targets, meta) in tqdm(enumerate(dataset), total=len(dataset), desc="testing"):
             labels, bboxes, scores = model(image)
             scores = scores[0]
             tr_scores = scores[scores > tr]
             tr_labels = labels[0][scores > tr]
             tr_bboxes = bboxes[0][scores > tr]
-            bbox_data = self.update_bbox_data(tr_bboxes, bbox_data)
+            bbox_data = self.update_bbox_data(tr_bboxes)
             iou, prec, recall = calc_det_metrics(tr_bboxes, targets)
             metrics['precission'].append(prec)
             metrics['recall'].append(recall)
             metrics['iou'].append(iou)
             preds[meta['file_name']] = {
-                'bboxes': tr_bboxes, 
-                'scores': tr_scores, 
-                'targets': targets,
+                'bboxes': tr_bboxes.tolist(), 
+                'scores': tr_scores.tolist(), 
+                'targets': targets.tolist(),
                 'width': meta['width'],
-                'height': meta['height']
+                'height': meta['height'],
+                'bbox_data': bbox_data
                 }
             self.metric_logger.log(i, meta['file_name'], prec, recall, iou)
-            draw_image = vis.show_img_pred(image, tr_bboxes)
+            draw_image = vis.show_img_pred(image, tr_bboxes, targets)
             if self.save_vis:
                 self.save_img(draw_image, meta['file_name'])
-            
+        print('Done!\n')  
         m_precission = sum(metrics['precission']) / len(metrics['precission'])
         m_recall = sum(metrics['recall']) / len(metrics['recall'])
         m_iou = sum(metrics['iou']) / len(metrics['iou'])
         results = {
             'num_images': len(dataset),
-            'm_precission': m_precission,
-            'm_recall': m_recall,
+            'm_precission': round(m_precission, 2),
+            'm_recall': round(m_recall, 2),
             'm_iou': m_iou
         }
+        self.draw_metrics(metrics, preds)
+        self.draw_overall_metrics(['precission', 'recall', 'iou'], [m_precission, m_recall, m_iou])
         self.print_results(results)
-        vis.bar(['precission', 'recall', 'iou'], [m_precission, m_recall, m_iou])
+
         utils.save_json(preds, self.preds_path)
         utils.save_json(results, self.results_path)
 
@@ -178,33 +218,26 @@ def print_args(cfg:dict):
     print('cfg params:')
     for k, v in cfg.items():
         print(f'\t{k}: {v}')
+    print('\n')
 
 
 def main(cfg:dict):
     print_args(cfg)
-    model = InferModel(cfg['model'])
+    model = InferModel(cfg['model'], cfg['img_size'])
     dataset = CocoTestDataset(cfg['dataset'], cfg['img_size'])
-    tester = Tester()
+    tester = Tester(save_dir=cfg['save_dir'])
     tester.run(model, dataset)
 
 
-def test():
-    tester = Tester()
-    tester.bbox_data = {
-            'min_square':10000,
-            'max_square':0,
-            'min_width':10000,
-            'max_width':0,
-            'min_height':10000,
-            'max_height':0,
-        }
-    tester.print_results(results = {
-            'num_images': 1,
-            'm_precission': 0.5,
-            'm_recall': 0.5,
-            'm_iou': 0.5
-        })
-
-
 if __name__ == '__main__':
-    test()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', type=argparse.FileType('r'), default=None, help='конфиг входных данных')
+    args = parser.parse_args()
+    if args.config:
+        try:
+            config = yaml.safe_load(args.config)
+            main(config)
+        except FileNotFoundError:
+            print(f'Файл {args.config} не найден')
+        except yaml.YAMLError as exc:
+            print(f'Ошибка при чтении YAML файла: {exc}')

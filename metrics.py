@@ -14,11 +14,12 @@ def to_corners(bboxes):
 
 
 def get_iou(bboxes1, bboxes2):
+    if len(bboxes1) == 0:
+        return np.zeros((bboxes2.shape[0],)), None
     bbox_type = type(bboxes1)
     if bbox_type == ndarray:
         bboxes1 = torch.tensor(bboxes1)
         bboxes2 = torch.tensor(bboxes2)
-
     area1 = box_area(bboxes1)
     area2 = box_area(bboxes2)
 
@@ -54,16 +55,13 @@ def calc_det_metrics(bboxes, targets, iou_tr=0.3):
     FN = len(targets)
     mean_iou = []
     iou, _ = get_iou(targets, bboxes)
-    print(f'{iou=}')
     for i in range(len(targets)):
         t_iou = iou[i]
-        print(f'{t_iou=}')
         tr_iou_scores = t_iou[t_iou > iou_tr]
-        print(f'{tr_iou_scores=}')
         if len(tr_iou_scores) > 0:
             TP += 1
             FN -= 1
-            mean_iou.append(np.mean(tr_iou_scores))
+            mean_iou += tr_iou_scores.tolist()
         else:
             FP += 1
             mean_iou.append(0)
@@ -72,5 +70,5 @@ def calc_det_metrics(bboxes, targets, iou_tr=0.3):
     precision = TP / (TP + FP) if (TP + FP) != 0 else 0
     recall = TP / (TP + FN) if (TP + FN) != 0 else 0
 #    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) != 0 else 0
-    mean_iou = np.mean(mean_iou)
+    mean_iou = sum(mean_iou) / len(mean_iou) if len(mean_iou) > 0 else 0
     return mean_iou, precision, recall

@@ -410,8 +410,9 @@ class Resizer:
             return img
         else:
             r_img = cv2.resize(img, self.size)
-            r_img = np.expand_dims(r_img, axis=-1)
-        return r_img
+            if len(r_img.shape) == 2:
+                r_img = np.expand_dims(r_img, axis=-1)
+            return r_img
     
     def resize_coords(self, bboxes, img_size):
         if self.size == [] or self.size is None:
@@ -638,8 +639,8 @@ class CocoTestDataset(Dataset):
         img_size = img.shape[:-1]
         targets = self.get_targets(img_data['id'])
         img = self.resizer.resize_img(img)
-        targets = self.resizer.resize_coords(targets, img_size)
-        return img, targets, {'file_name': img_data['filename'], 'width': img.shape[1], 'height': img.shape[0]}
+        targets = np.array(self.resizer.resize_coords(targets, img_size))
+        return img, targets, {'file_name': img_data['file_name'], 'width': img.shape[1], 'height': img.shape[0]}
 
 ###############################################################################################################
 
