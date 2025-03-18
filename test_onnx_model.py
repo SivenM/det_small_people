@@ -226,7 +226,7 @@ def main(cfg:dict):
     model = InferModel(cfg['model'], cfg['img_size'])
     dataset = CocoTestDataset(cfg['dataset'], cfg['img_size'])
     tester = Tester(save_dir=cfg['save_dir'])
-    tester.run(model, dataset)
+    tester.run(model, dataset, tr=cfg['tr'])
 
 
 if __name__ == '__main__':

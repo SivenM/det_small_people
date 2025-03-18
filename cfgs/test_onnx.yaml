@@ -1,4 +1,5 @@
-model: "/home/max/ieos/small_obj/vid_pred/rt-detr.onnx"
-dataset: "/home/max/ieos/small_obj/vid_pred/data/simple_detr_dataset/coco_train_1_frame_v2"
-img_size: [224,224]
-save_dir: "test_results/debug"
+model: "/home/max/ieos/small_obj/vid_pred/onnx_models/lodki_v1_640x640.onnx"
+dataset: "/home/max/astra/kmz/datasets/ShipMap/test"
+img_size: [640,640]
+tr: 0.1
+save_dir: "test_results/lodki_v1_640x640_tr0.1"
