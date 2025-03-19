@@ -1,0 +1,9 @@
+model_path: "onnx_models/lodki_v1_640x640.onnx"
+in_size: [640, 640]
+tr: 0.5
+
+mode: img # img or vid
+data_path: /home/max/astra/kmz/datasets/test_images/6/WhatsApp Image 2025-03-18 at 11.09.13.jpeg
+save_path: /home/max/astra/kmz/datasets/test_results/6_1.jpeg
+color: [255,0,0]
+thic: 5

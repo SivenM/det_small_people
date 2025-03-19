@@ -402,8 +402,14 @@ class Resizer:
         self.size = size
 
     @staticmethod
-    def _resize_coordinate(resized_img_side, coord, img_side):
-        return resized_img_side * coord / img_side
+    def _resize_coordinate(resized_img_side, coord, img_side, reverse=False):
+        if reverse:
+            out = img_side * coord / resized_img_side
+            if out < 0:
+                return 3
+            return out
+        else:
+            return resized_img_side * coord / img_side
 
     def resize_img(self, img):
         if self.size == [] or self.size is None:
@@ -414,7 +420,7 @@ class Resizer:
                 r_img = np.expand_dims(r_img, axis=-1)
             return r_img
     
-    def resize_coords(self, bboxes, img_size):
+    def resize_coords(self, bboxes, img_size, reverse=False):
         if self.size == [] or self.size is None:
             return bboxes
         else:
@@ -422,10 +428,10 @@ class Resizer:
             for bbox in bboxes:
                 resized_bboxes.append(
                     [
-                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1])),
-                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0])),
-                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1])),
-                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0])),
+                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1], reverse)),
+                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0], reverse)),
+                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1], reverse)),
+                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0], reverse)),
                     ]
                 )
             return resized_bboxes
