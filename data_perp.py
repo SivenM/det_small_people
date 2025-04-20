@@ -601,12 +601,12 @@ class DETRDatasetTest(DETRDataset):
 
 
 class CocoTestDataset(Dataset):
-    def __init__(self, path, size=[]):
+    def __init__(self, images_dir, ann_path, size=[]):
         super().__init__()
-        self.path = path
+        #self.path = path
         self.resizer = Resizer(size)
-        self.images_dir = os.path.join(path, 'images')
-        self.ann_path = os.path.join(path, 'annotations.json')
+        self.images_dir =  images_dir #os.path.join(path, 'images')
+        self.ann_path = ann_path #os.path.join(path, 'annotations.json')
         self.ann = utils.load_json(self.ann_path)
 
     def __len__(self):

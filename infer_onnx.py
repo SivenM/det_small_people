@@ -40,15 +40,83 @@ class InferModel:
         img /= 255
         return img, img_shape
 
-    def __call__(self, image:np.ndarray, tr:float=0.1) -> tuple[np.ndarray]:
+    def nms(self, bboxes, scores, threshold=0.5):
+        """
+        Реализация Non-Maximum Suppression (NMS) для подавления лишних bounding boxes.
+
+        Параметры:
+            bboxes (np.ndarray): Массив bounding boxes в формате [x1, y1, x2, y2].
+            scores (np.ndarray): Массив scores (уверенность модели) для каждого bounding box.
+            threshold (float): Порог IoU для подавления (обычно от 0.3 до 0.5).
+
+        Возвращает:
+            np.ndarray: Индексы bounding boxes, которые остались после NMS.
+        """
+        if len(bboxes) == 0:
+            return np.array([], dtype=int)
+
+        # Координаты bounding boxes
+        x1 = bboxes[:, 0]
+        y1 = bboxes[:, 1]
+        x2 = bboxes[:, 2]
+        y2 = bboxes[:, 3]
+
+        # Вычисляем площадь bounding boxes
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+
+        # Сортируем bounding boxes по убыванию scores
+        order = scores.argsort()[::-1]
+
+        # Список для хранения индексов выбранных bounding boxes
+        keep = []
+
+        while order.size > 0:
+            # Выбираем bounding box с наибольшим score
+            i = order[0]
+            keep.append(i)
+            if order.size == 1:
+                break
+            # Вычисляем IoU с остальными bounding boxes
+            xx1 = np.maximum(x1[i], x1[order[1:]])
+            yy1 = np.maximum(y1[i], y1[order[1:]])
+            xx2 = np.minimum(x2[i], x2[order[1:]])
+            yy2 = np.minimum(y2[i], y2[order[1:]])
+
+            # Вычисляем ширину и высоту пересечения
+            w = np.maximum(0, xx2 - xx1 + 1)
+            h = np.maximum(0, yy2 - yy1 + 1)
+            intersection = w * h
+
+            # Вычисляем IoU
+            iou = intersection / (areas[i] + areas[order[1:]] - intersection)
+
+            # Оставляем только те bounding boxes, у которых IoU меньше порога
+            inds = np.where(iou <= threshold)[0]
+            if inds.size == 0:
+                break
+            order = order[inds + 1] if inds.size > 0 else np.array([], dtype=int)  # +1, потому что order[0] уже обработан
+
+        return np.array(keep)
+
+    def __call__(self, image:np.ndarray, tr:list=[0, 0.1]) -> tuple[np.ndarray]:
         image, img_shape = self.preproc_image(image)
         _, bboxes, scores = self.model.run(None, {self.in_img:image, self.in_shape:self.size})
         scores = scores[0]
-        tr_scores = scores[scores > tr]
-        tr_bboxes = bboxes[0][scores > tr]
+        mask = (scores > tr[0]) & (scores < tr[1])
+        tr_scores = scores[mask]
+        tr_bboxes = bboxes[0][mask]
+        #print(f'{tr_scores.shape=}')
+        #print(f'{tr_bboxes.shape=}')
+        keep_indices = self.nms(tr_bboxes, tr_scores, threshold=0.3)
+
+        # Отфильтрованные bounding boxes
+        tr_bboxes = tr_bboxes[keep_indices]
+        tr_scores = tr_scores[keep_indices]
+        #tr_bboxes = tr_bboxes[scores > tr[1]]
         if image.shape[2:] != img_shape[:-1]:
             tr_bboxes = self.resizer.resize_coords(tr_bboxes, img_shape, True)
         return tr_bboxes, tr_scores
+
 
 def load_image(path:str) -> np.ndarray:
     img = cv2.imread(path)
@@ -60,10 +128,12 @@ def save_img(img:np.ndarray, path:str):
     cv2.imwrite(path, img)
 
 
-def pred_vid(model:InferModel, cfg:dict):
+def pred_vid(model:InferModel, cfg:dict): 
+    print(f'vid: {cfg["data_path"].split("/")[-1]}')
+    print(f'infer runing...')
     cap = cv2.VideoCapture(cfg['data_path'])
     if cap.isOpened() == False:
-            print('Error')
+        print('Error')
     count = 0
     while True:
         count += 1
@@ -72,7 +142,7 @@ def pred_vid(model:InferModel, cfg:dict):
             break
         bboxes, scores = model(frame, cfg['tr'])
         draw_image = vis.show_img_pred(frame, bboxes, color=cfg['color'], thickness=cfg['thic'])
-        save_path = os.path.join(cfg['save_path'], str(count) + '.json')
+        save_path = os.path.join(cfg['save_path'], str(count) + '.jpg')
         save_img(draw_image, save_path)
     print('done')
 
@@ -81,17 +151,19 @@ def main(cfg:dict):
     model = InferModel(cfg['model_path'], cfg['in_size'])
     utils.mkdir(cfg['save_path'])
     if cfg['mode'] == 'img':
-        img, img_size = load_image(cfg['img_path'])
+        img, img_size = load_image(cfg['data_path'])
         #img = cv2.resize(img, [640, 640])
         print(img.shape)
         bboxes, scores = model(img, cfg['tr'])
         draw_image = vis.show_img_pred(img, bboxes, color=cfg['color'], thickness=cfg['thic'])
         print(draw_image.shape)
-        save_img(draw_image, cfg['save_path'])
+        plt.imshow(draw_image)
+        plt.show()
+        #save_img(draw_image, cfg['save_path'])
     elif cfg['mode'] == 'vid':
         pred_vid(model, cfg)
     else:
-        print(f'wrong mode: {cfg['mode']}')
+        print(f'wrong mode: {cfg["mode"]}')
     
     #plt.imshow(draw_image)
     #plt.show()

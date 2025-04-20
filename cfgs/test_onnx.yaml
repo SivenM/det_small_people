@@ -1,5 +1,6 @@
 model: "/home/max/ieos/small_obj/vid_pred/onnx_models/lodki_v1_640x640.onnx"
-dataset: "/home/max/astra/kmz/datasets/ShipMap/test"
+img_folder: /home/max/astra/kmz/datasets/VAIS_RGB-SMD-MARITIME-WSODD-MARVEL.v6-rgb.2.coco/valid
+ann_file: /home/max/astra/kmz/datasets/VAIS_RGB-SMD-MARITIME-WSODD-MARVEL.v6-rgb.2.coco/valid_annotations.coco.json
 img_size: [640,640]
 tr: 0.1
-save_dir: "test_results/lodki_v1_640x640_tr0.1"
+save_dir: "test_results/lodki_v2_640x640_tr0.1"

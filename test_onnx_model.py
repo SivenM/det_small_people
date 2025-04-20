@@ -224,7 +224,7 @@ def print_args(cfg:dict):
 def main(cfg:dict):
     print_args(cfg)
     model = InferModel(cfg['model'], cfg['img_size'])
-    dataset = CocoTestDataset(cfg['dataset'], cfg['img_size'])
+    dataset = CocoTestDataset(cfg['img_folder'], cfg['ann_file'], cfg['img_size'])
     tester = Tester(save_dir=cfg['save_dir'])
     tester.run(model, dataset, tr=cfg['tr'])
 

@@ -33,9 +33,9 @@ def create_vids(main_dir:str, range_frames:list, save_dir:str, prefix:str=''):
 
 
 if __name__ == '__main__':
-    main_dir = "results/pred_stroika_vid3_tr_00_7/window_vid_4"
-    range_frames = [1800, 5300]
-    save_dir = "results/vids/"
+    main_dir = "/home/max/astra/kmz/datasets/распознавание_судов/845582699179_v2.1"
+    range_frames = [323, 483]
+    save_dir = "/home/max/astra/kmz/datasets/test_results/"
     prefix = '01'
 
     create_vids(main_dir, range_frames, save_dir, prefix)

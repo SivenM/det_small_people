@@ -1,9 +1,14 @@
-model_path: "onnx_models/lodki_v1_640x640.onnx"
+model_path: "onnx_models/lodki_v2_640x640.onnx"
 in_size: [640, 640]
-tr: 0.5
+tr: [0.2, 0.99]
 
-mode: img # img or vid
-data_path: /home/max/astra/kmz/datasets/test_images/6/WhatsApp Image 2025-03-18 at 11.09.13.jpeg
-save_path: /home/max/astra/kmz/datasets/test_results/6_1.jpeg
-color: [255,0,0]
-thic: 5
+mode: vid # img or vid
+#data_path: /home/max/astra/kmz/datasets/VAIS_RGB-SMD-MARITIME-WSODD-MARVEL.v6-rgb.2.coco/valid/192-168-0-64_01_20200727103701331_jpg.rf.663a5180f11bd13f9857ba980351bc09.jpg
+#save_path: a7418ef2d68b22252620fdd45e852cd8.jpg
+data_path: /home/max/astra/kmz/datasets/распознавание_судов/LCB02MAY2020_0451.mp4
+save_path: /home/max/astra/kmz/datasets/распознавание_судов/LCB02MAY2020_0451_v2.2
+
+color: [0,0,255]
+thic: 1
+
+track: true
