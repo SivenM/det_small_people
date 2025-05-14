@@ -2,16 +2,54 @@ import os
 import onnxruntime as ort
 import numpy as np
 import cv2
-from data_perp import Resizer
 #from tqdm import tqdm
 import matplotlib.pylab as plt
 import visualizer as vis
 import argparse
 import yaml
 import utils
-from loguru import logger
+#from loguru import logger
 
 
+class Resizer:
+    def __init__(self, size):
+        self.size = size
+
+    @staticmethod
+    def _resize_coordinate(resized_img_side, coord, img_side, reverse=False):
+        if reverse:
+            out = img_side * coord / resized_img_side
+            if out < 0:
+                return 3
+            return out
+        else:
+            return resized_img_side * coord / img_side
+
+    def resize_img(self, img):
+        if self.size == [] or self.size is None:
+            return img
+        else:
+            r_img = cv2.resize(img, self.size)
+            if len(r_img.shape) == 2:
+                r_img = np.expand_dims(r_img, axis=-1)
+            return r_img
+    
+    def resize_coords(self, bboxes, img_size, reverse=False):
+        if self.size == [] or self.size is None:
+            return bboxes
+        else:
+            resized_bboxes = []
+            for bbox in bboxes:
+                resized_bboxes.append(
+                    [
+                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1], reverse)),
+                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0], reverse)),
+                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1], reverse)),
+                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0], reverse)),
+                    ]
+                )
+            return resized_bboxes
+        
 
 class InferModel:
     def __init__(self, path:str, size):
@@ -41,61 +79,35 @@ class InferModel:
         return img, img_shape
 
     def nms(self, bboxes, scores, threshold=0.5):
-        """
-        Реализация Non-Maximum Suppression (NMS) для подавления лишних bounding boxes.
-
-        Параметры:
-            bboxes (np.ndarray): Массив bounding boxes в формате [x1, y1, x2, y2].
-            scores (np.ndarray): Массив scores (уверенность модели) для каждого bounding box.
-            threshold (float): Порог IoU для подавления (обычно от 0.3 до 0.5).
-
-        Возвращает:
-            np.ndarray: Индексы bounding boxes, которые остались после NMS.
-        """
         if len(bboxes) == 0:
             return np.array([], dtype=int)
-
-        # Координаты bounding boxes
         x1 = bboxes[:, 0]
         y1 = bboxes[:, 1]
         x2 = bboxes[:, 2]
         y2 = bboxes[:, 3]
-
-        # Вычисляем площадь bounding boxes
         areas = (x2 - x1 + 1) * (y2 - y1 + 1)
 
-        # Сортируем bounding boxes по убыванию scores
         order = scores.argsort()[::-1]
-
-        # Список для хранения индексов выбранных bounding boxes
         keep = []
 
         while order.size > 0:
-            # Выбираем bounding box с наибольшим score
             i = order[0]
             keep.append(i)
             if order.size == 1:
                 break
-            # Вычисляем IoU с остальными bounding boxes
             xx1 = np.maximum(x1[i], x1[order[1:]])
             yy1 = np.maximum(y1[i], y1[order[1:]])
             xx2 = np.minimum(x2[i], x2[order[1:]])
             yy2 = np.minimum(y2[i], y2[order[1:]])
 
-            # Вычисляем ширину и высоту пересечения
             w = np.maximum(0, xx2 - xx1 + 1)
             h = np.maximum(0, yy2 - yy1 + 1)
             intersection = w * h
-
-            # Вычисляем IoU
             iou = intersection / (areas[i] + areas[order[1:]] - intersection)
-
-            # Оставляем только те bounding boxes, у которых IoU меньше порога
             inds = np.where(iou <= threshold)[0]
             if inds.size == 0:
                 break
             order = order[inds + 1] if inds.size > 0 else np.array([], dtype=int)  # +1, потому что order[0] уже обработан
-
         return np.array(keep)
 
     def __call__(self, image:np.ndarray, tr:list=[0, 0.1]) -> tuple[np.ndarray]:
@@ -141,7 +153,7 @@ def pred_vid(model:InferModel, cfg:dict):
         if not ret:
             break
         bboxes, scores = model(frame, cfg['tr'])
-        draw_image = vis.show_img_pred(frame, bboxes, color=cfg['color'], thickness=cfg['thic'])
+        draw_image = vis.show_img_pred(frame, bboxes, conf=scores, color=cfg['color'], thickness=cfg['thic'])
         save_path = os.path.join(cfg['save_path'], str(count) + '.jpg')
         save_img(draw_image, save_path)
     print('done')

@@ -5,15 +5,29 @@ from numpy import ndarray
 import utils
 
 
-def draw_bboxes(img_draw:ndarray, bboxes:ndarray, color:tuple=(0,0,255), thicknes:int=1) -> ndarray:
-    for bbox in bboxes:
+def draw_bboxes(
+        img_draw:ndarray, 
+        bboxes:ndarray, 
+        conf:ndarray=None, 
+        color:tuple=(0,0,255), 
+        thicknes:int=1) -> ndarray:
+    
+    for i, bbox in enumerate(bboxes):
+        score = conf[i]
+        text = f"{score:.2f}"
         img_draw = cv2.rectangle(img_draw, (int(bbox[2]), int(bbox[3])), (int(bbox[0]), int(bbox[1])),  color, thicknes)
+        img_draw = cv2.putText(img_draw, text, (int(bbox[0]) + 3, int(bbox[1]) - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            1,
+            cv2.LINE_AA)
     return img_draw
 
 
-def show_img_pred(image:ndarray, preds:ndarray, targets:ndarray=None, color=(0,0,255), thickness=1):
+def show_img_pred(image:ndarray, preds:ndarray, conf:ndarray=None, targets:ndarray=None, color=(0,0,255), thickness=1):
     img_draw = image.copy()
-    img_draw = draw_bboxes(img_draw, preds, color, thickness)
+    img_draw = draw_bboxes(img_draw, preds, conf, color, thickness)
     if targets is not None:
         img_draw = draw_bboxes(img_draw, targets, (255,255,0))
     return img_draw

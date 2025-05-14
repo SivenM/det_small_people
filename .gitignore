@@ -15,3 +15,4 @@ rt-detr.onnx
 *rt-detr*
 *.onnx
 onnx_models
+boat_detv2*
