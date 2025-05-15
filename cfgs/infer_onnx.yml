@@ -1,0 +1,12 @@
+model_path: "onnx_models/lodki_v2_640x640.onnx"
+in_size: [640, 640]
+tr: [0.1, 0.99]
+
+mode: vid # img or vid
+data_path: /home/max/ieos/data/new_vids/window_vid_5.mp4
+save_path: /home/max/ieos/small_obj/vid_pred/test_results/stroika_640x640_tr0.1_for_gen_dataset
+#data_path: /home/max/astra/kmz/datasets/распознавание_судов/video-131388_456248016-480.mp4
+#save_path: /home/max/astra/kmz/datasets/распознавание_судов/video-131388_456248016-480_2
+
+color: [0,0,255]
+thic: 2

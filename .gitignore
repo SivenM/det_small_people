@@ -11,3 +11,8 @@ test_results
 test_cfg.json
 pos_encoding_exp.ipynb
 cctransformerdet.py
+rt-detr.onnx
+*rt-detr*
+*.onnx
+onnx_models
+boat_detv2*

@@ -402,18 +402,25 @@ class Resizer:
         self.size = size
 
     @staticmethod
-    def _resize_coordinate(resized_img_side, coord, img_side):
-        return resized_img_side * coord / img_side
+    def _resize_coordinate(resized_img_side, coord, img_side, reverse=False):
+        if reverse:
+            out = img_side * coord / resized_img_side
+            if out < 0:
+                return 3
+            return out
+        else:
+            return resized_img_side * coord / img_side
 
     def resize_img(self, img):
         if self.size == [] or self.size is None:
             return img
         else:
             r_img = cv2.resize(img, self.size)
-            r_img = np.expand_dims(r_img, axis=-1)
-        return r_img
+            if len(r_img.shape) == 2:
+                r_img = np.expand_dims(r_img, axis=-1)
+            return r_img
     
-    def resize_coords(self, bboxes, img_size):
+    def resize_coords(self, bboxes, img_size, reverse=False):
         if self.size == [] or self.size is None:
             return bboxes
         else:
@@ -421,10 +428,10 @@ class Resizer:
             for bbox in bboxes:
                 resized_bboxes.append(
                     [
-                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1])),
-                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0])),
-                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1])),
-                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0])),
+                        int(self._resize_coordinate(self.size[1], bbox[0], img_size[1], reverse)),
+                        int(self._resize_coordinate(self.size[0], bbox[1], img_size[0], reverse)),
+                        int(self._resize_coordinate(self.size[1], bbox[2], img_size[1], reverse)),
+                        int(self._resize_coordinate(self.size[0], bbox[3], img_size[0], reverse)),
                     ]
                 )
             return resized_bboxes
@@ -591,6 +598,55 @@ class DETRDatasetTest(DETRDataset):
         if self.transform:
             t_sample = self.transform(np.array(sample))
         return sample, t_sample, bboxes, t_bboxes, t_labels, {'path': sample_name, 'size': sample.shape}
+
+
+class CocoTestDataset(Dataset):
+    def __init__(self, images_dir, ann_path, size=[]):
+        super().__init__()
+        #self.path = path
+        self.resizer = Resizer(size)
+        self.images_dir =  images_dir #os.path.join(path, 'images')
+        self.ann_path = ann_path #os.path.join(path, 'annotations.json')
+        self.ann = utils.load_json(self.ann_path)
+
+    def __len__(self):
+        return len(self.ann['images'])
+
+    def load_img(self, file_name:str) -> np.ndarray:
+        """
+        return (H, W, 3)
+        """
+        path = os.path.join(self.images_dir, file_name)
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        return img
+
+    def convert_to_xyxy(self, bbox):
+        return [
+                bbox[0],
+                bbox[1],
+                bbox[0] + bbox[2],
+                bbox[1] + bbox[3],
+                ]
+
+    def get_targets(self, image_id:str) -> np.ndarray: 
+        """
+        return bboxes (N, 4)
+        """
+        bboxes = []
+        for ann in self.ann['annotations']:
+            if ann['image_id'] == image_id:
+                bboxes.append(self.convert_to_xyxy(ann['bbox']))
+        return np.array(bboxes)
+
+    def __getitem__(self, index):
+        img_data = self.ann['images'][index]
+        img = self.load_img(img_data['file_name'])
+        img_size = img.shape[:-1]
+        targets = self.get_targets(img_data['id'])
+        img = self.resizer.resize_img(img)
+        targets = np.array(self.resizer.resize_coords(targets, img_size))
+        return img, targets, {'file_name': img_data['file_name'], 'width': img.shape[1], 'height': img.shape[0]}
 
 ###############################################################################################################
 
