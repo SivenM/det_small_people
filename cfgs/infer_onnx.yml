@@ -1,10 +1,10 @@
 model_path: "onnx_models/lodki_v2_640x640.onnx"
 in_size: [640, 640]
-tr: [0.55, 0.99]
+tr: [0.1, 0.99]
 
-mode: img # img or vid
-data_path: /home/max/astra/kmz/datasets/test_images/1/WhatsApp Image 2025-03-18 at 10.58.54 (1).jpeg
-save_path: WhatsApp Image 2025-03-18 at 10.58.54 (1).jpeg
+mode: vid # img or vid
+data_path: /home/max/ieos/data/new_vids/window_vid_5.mp4
+save_path: /home/max/ieos/small_obj/vid_pred/test_results/stroika_640x640_tr0.1_for_gen_dataset
 #data_path: /home/max/astra/kmz/datasets/распознавание_судов/video-131388_456248016-480.mp4
 #save_path: /home/max/astra/kmz/datasets/распознавание_судов/video-131388_456248016-480_2
 

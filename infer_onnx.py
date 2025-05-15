@@ -34,7 +34,7 @@ class Resizer:
                 r_img = np.expand_dims(r_img, axis=-1)
             return r_img
     
-    def resize_coords(self, bboxes, img_size, reverse=False):
+    def resize_coords(self, bboxes, img_size, reverse=False) -> list:
         if self.size == [] or self.size is None:
             return bboxes
         else:
@@ -146,7 +146,10 @@ def pred_vid(model:InferModel, cfg:dict):
     cap = cv2.VideoCapture(cfg['data_path'])
     if cap.isOpened() == False:
         print('Error')
+    img_dir_path = os.path.join(cfg['save_path'], 'images')
+    utils.mkdir(img_dir_path)
     count = 0
+    pred_list = []
     while True:
         count += 1
         ret, frame = cap.read()
@@ -154,8 +157,18 @@ def pred_vid(model:InferModel, cfg:dict):
             break
         bboxes, scores = model(frame, cfg['tr'])
         draw_image = vis.show_img_pred(frame, bboxes, conf=scores, color=cfg['color'], thickness=cfg['thic'])
-        save_path = os.path.join(cfg['save_path'], str(count) + '.jpg')
+        save_path = os.path.join(img_dir_path, str(count) + '.jpg')
         save_img(draw_image, save_path)
+        pred_list.append(
+            {
+                'image_id': count,
+                'img_size': frame.shape,
+                'bboxes': bboxes,
+                'scores': scores.tolist()
+            }
+        )
+    result_path = os.path.join(cfg['save_path'], 'result.json')
+    utils.save_json(pred_list, result_path)
     print('done')
 
 
