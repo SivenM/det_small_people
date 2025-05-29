@@ -13,7 +13,16 @@ BASE_DIR = "runs"
 
 class Coach:
 
-    def __init__(self, name:str, save_dir:str=None, metric:str='bin_acc', logger:bool=True, checkpoint:bool=True, tboard:bool=True, device='cuda', debug:bool=False) -> None:
+    def __init__(
+            self, name:str, 
+            save_dir:str=None, 
+            metric:str='bin_acc', 
+            logger:bool=True, 
+            checkpoint:bool=True, 
+            tboard:bool=True, 
+            device='cuda', 
+            debug:bool=False
+            ) -> None:
         if save_dir:
             utils.mkdir(save_dir)
             utils.mkdir(f'{save_dir}/{name}')

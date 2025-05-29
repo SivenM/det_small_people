@@ -541,7 +541,6 @@ class DefEncoderDet(nn.Module):
         torch.nn.init.normal_(self.level_embed)
 
 
-
     def prepare_input_features(self, srcs, pos_embeds):
         src_flatten = []
         lvl_pos_embed_flatten = []

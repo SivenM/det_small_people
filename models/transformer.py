@@ -30,7 +30,7 @@ class TransformerBlock(nn.Module):
     def forward(self, x):
         out_drop_1 = self.dropout1(x)
         out_norm_1 = self.layer_norm1(out_drop_1)
-        out_msa = self.MSA(out_norm_1)
+        out_msa = self.MSA(out_norm_1, out_norm_1, out_norm_1)
         out_drop_2 = self.dropout2(out_msa)
         add = x + out_drop_2
         out_norm_2 = self.layer_norm2(add)
@@ -118,7 +118,7 @@ class VisTransformer(nn.Module):
             nn.Linear(1, 256),
             nn.GELU(),
             nn.Linear(256, num_cls),
-            nn.Sigmoid()
+            nn.Sigmoid() if num_cls == 1 else nn.Identity()
         )
 
     def forward(self, x):
