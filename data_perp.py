@@ -317,7 +317,7 @@ class Pad():
 
 class CropDataset(Dataset):
     
-    def __init__(self, json_path, transform=None, target_transforms=None, pad_size:tuple=(50,50)) -> None:
+    def __init__(self, json_path=None, transform=None, target_transforms=None, pad_size:tuple=(50,50)) -> None:
         super().__init__()
         self.pad_size = pad_size
         if pad_size:
@@ -332,7 +332,8 @@ class CropDataset(Dataset):
         return len(self.path_list)
 
     def _load(self, path):
-        return utils.load_json(path)
+        if path:
+            return utils.load_json(path)
     
     def from_pickle(self, data_path:str):
         with open(data_path, "rb") as file:
@@ -351,7 +352,10 @@ class CropDataset(Dataset):
             img = sample[i]
             assert type(img) == np.ndarray
             assert len(img.shape) == 3
-            assert img.shape[-1] == 1
+            if img.shape[-1] == 3:
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                img = np.expand_dims(img, axis=-1)
+            assert img.shape[-1] == 1, f'{img.shape=}'
             #logger.info(img.shape)
             resized = cv2.resize(img, (w, h))
             out.append(np.expand_dims(resized, axis=-1))
@@ -376,6 +380,54 @@ class CropDataset(Dataset):
             sample = self.pad.get_pad(sample)
         return sample, label    
     
+
+class CropDatasetV2(CropDataset):
+
+    def __init__(self, data_path:str, labels:list, transform=None, target_transforms=None, pad_size = (50, 50), len_seq:int=10):
+        super().__init__()
+        self.pad_size = pad_size
+        self.digit_labels = self._create_labels(labels)
+        if pad_size:
+            self.pad = Pad(pad_size)
+        else:
+            self.pad = None
+        self.path_list = self._load_paths(data_path)
+        self.transform = transform
+        self.target_transforms = target_transforms
+        self.len_seq = len_seq
+
+    def __len__(self):
+        return len(self.path_list)    
+
+    def _load_paths(self, data_path:str) -> list[str]:
+        return list(map(lambda x: os.path.join(data_path, x), os.listdir(data_path)))
+    
+    def _create_labels(self, labels:list) -> dict:
+        out_dict = {}
+        for i, label in enumerate(labels):
+            out_dict[label] = i
+        return out_dict
+    
+    def prepare_label(self, label:str):
+        return self.digit_labels[label]
+
+    def __getitem__(self, index):
+        curr_path = self.path_list[index]
+        sample, label = self.from_pickle(curr_path)
+        assert len(sample) == self.len_seq, f'wrong seq len: actual {len(sample)} vs {self.len_seq}'
+        sample = self.prepare_sample(sample)
+        label = self.prepare_label(label)
+        if self.transform:
+            sample = self.transform(sample)
+        if self.target_transforms:
+            label = self.target_transforms(label)
+        if self.pad:
+            sample = self.pad.get_pad(sample)
+        return sample, label
+    
+    
+
+
 
 class TestCropDataset(CropDataset):
     
