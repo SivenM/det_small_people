@@ -29,10 +29,10 @@ class Coach:
             self.logs_dir = f'{save_dir}/{name}/logs'
             self.save_dir = f'{save_dir}/{name}/models/'
         else:
-            utils.mkdir(f'{BASE_DIR}/{name}')
-            self.logs_dir = f'{BASE_DIR}/{name}/logs'
-            self.save_dir = f'{BASE_DIR}/{name}/models/'
-            self.device = device
+            #utils.mkdir(f'{BASE_DIR}/{name}')
+            self.logs_dir = None#f'{BASE_DIR}/{name}/logs'
+            self.save_dir = None#f'{BASE_DIR}/{name}/models/'
+        self.device = device
         
         if metric == 'multi_acc':
             self.metric = multiclass_accuracy
@@ -55,6 +55,7 @@ class Coach:
             self.tboard = TensorBoard(f'{save_dir}/{name}/tb')
         else:
             self.tboard = None
+        
         self.history = {
             't_loss': [],
             'v_loss': [],
@@ -89,7 +90,7 @@ class Coach:
             total=(len(data)),
             disable=False
         )
-
+        print(f'train step!')
         for batch, (sample, label) in progress_bar:
             self.optimizer.zero_grad()
             sample, label = sample.to(self.device), label.to(self.device).squeeze(-1)
@@ -172,19 +173,22 @@ class Coach:
         self.loss_fn = loss_fn
         self.loss_fn.debug = self.debug
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        print('start fit!')
         for epoch in tqdm(range(start_epoch, epoches)):
-            t_loss, t_acc, t_iou = self.train_step(epoch, train_data)
+            print(f'{epoch=}')
+            t_loss, t_acc= self.train_step(epoch, train_data)
             if val_data:
-                v_loss, v_acc, v_iou = self.val_step(epoch, val_data)
+                v_loss, v_acc = self.val_step(epoch, val_data)
             else:
                 v_loss, v_acc = 0., 0.
             
-            self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou)
+            self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc, None, None)
             self.update_history(t_loss, v_loss, t_acc, v_acc)
             #if self.tboard:
             #    self.tboard.add_scalar('Loss/train', t_loss, epoch)
             #    self.tboard.add_scalar('Loss/train', v_loss, epoch)
-        torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
+        if self.save_dir:
+            torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
         return self.history
 
 

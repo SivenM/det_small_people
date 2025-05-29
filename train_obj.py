@@ -22,7 +22,7 @@ def main(config:dict):
     val_dataset = CropDataset('data/val.json', sample_transforms, target_transforms)
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=True)
-    loss_fn = torch.nn.BCELoss()
+    loss_fn = torch.nn.CrossEntropyLoss()
     #optimizator = torch.optim.Adam(model.parameters(), lr=config['lr'])
 
     coach.fit(
