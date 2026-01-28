@@ -3,7 +3,8 @@ from tqdm.auto import tqdm
 from typing import Tuple
 import torch
 from torch import nn
-from torcheval.metrics.functional import binary_accuracy, multiclass_accuracy
+#from torcheval.metrics.functional import binary_accuracy, multiclass_accuracy, multiclass_recall, multiclass_precision
+from metrics import MultiMetrics
 from callbacks import CSVLogger, ModelCheckpoint, TensorBoard
 import utils
 from loguru import logger
@@ -35,9 +36,9 @@ class Coach:
         self.device = device
         
         if metric == 'multi_acc':
-            self.metric = multiclass_accuracy
-        elif metric == 'bin_acc':
-            self.metric = binary_accuracy
+            self.metric = MultiMetrics()
+        elif metric == 'bin_acc':               #TODO
+            pass
         else:
             raise 'Wrong metric'
             
@@ -52,7 +53,17 @@ class Coach:
             self.checkpoint = None
 
         if tboard:
-            self.tboard = TensorBoard(f'{save_dir}/{name}/tb')
+            self.tboard = TensorBoard(f'{save_dir}/{name}/tb', 
+                                      ['loss',
+                                       'v_loss,',
+                                       't_acc',
+                                       't_precision',
+                                       't_recall',
+                                       'v_acc',
+                                       'v_precision',
+                                       'v_recall',
+                                       ]
+                                    )
         else:
             self.tboard = None
         
@@ -83,6 +94,8 @@ class Coach:
         self.loss_fn.train()
         t_loss = 0.
         t_acc = 0.
+        t_prec = 0.
+        t_recall = 0.
 
         progress_bar = tqdm(
             enumerate(data),
@@ -93,14 +106,17 @@ class Coach:
         print(f'train step!')
         for batch, (sample, label) in progress_bar:
             self.optimizer.zero_grad()
-            sample, label = sample.to(self.device), label.to(self.device).squeeze(-1)
+            sample, label = sample.to(self.device), label.to(self.device)
             pred = self.model(sample)
-            pred = pred.squeeze(-1)
+            pred = pred
             loss = self.loss_fn(pred, label)
             t_loss += loss.item()
             #if self.debug:
             #print(f'loss: {t_loss}')
-            t_acc += self.metric(pred, label).item()
+            metrics = self.metric(pred, label)
+            t_acc += metrics['acc']
+            t_prec += metrics['precision']
+            t_recall += metrics['recall']
             loss.backward()
             self.optimizer.step()
             progress_bar.set_postfix(
@@ -111,12 +127,16 @@ class Coach:
             )
         t_loss = t_loss / len(data)
         t_acc = t_acc / len(data)
-        return t_loss, t_acc
+        t_prec = t_prec / len(data)
+        t_recall = t_recall / len(data)
+        return t_loss, {'acc': t_acc, 'precision': t_prec, 'recall':t_recall}
 
     def val_step(self, epoch, data) -> Tuple[float, float]:
         self.model.eval()
         self.loss_fn.eval()
         v_loss, v_acc = 0, 0
+        v_prec = 0.
+        v_recall = 0.
         progress_bar = tqdm(
             enumerate(data),
             desc=f"val epoch {epoch}",
@@ -131,7 +151,10 @@ class Coach:
                 pred = pred.squeeze(-1)
                 loss = self.loss_fn(pred, label)
                 v_loss += loss.item()
-                v_acc += self.metric(pred, label.squeeze(-1)).item()
+                metrics = self.metric(pred, label)
+                v_acc += metrics['acc']
+                v_prec += metrics['precision']
+                v_recall += metrics['recall']
                 progress_bar.set_postfix(
                     {
                         'val_loss': v_loss / (batch + 1),
@@ -140,29 +163,35 @@ class Coach:
                 )
         v_loss = v_loss / len(data)
         v_acc = v_acc / len(data)
-        return v_loss, v_acc
+        v_prec = v_prec / len(data)
+        v_recall = v_recall / len(data)
+        return v_loss, {'acc': v_acc, 'precision': v_prec, 'recall':v_recall}
 
     def clear_history(self):
         self.history['t_loss'] = []
         self.history['v_loss'] = []
-        self.history['t_acc'] = []
-        self.history['v_acc'] = []
+        self.history['t_metrics'] = []
+        self.history['v_metrics'] = []
 
-    def update_history(self, t_loss, v_loss, t_acc, v_acc):
+    def update_history(self, t_loss, v_loss, t_metrics, v_metrics):
         self.history['t_loss'].append(t_loss)
         self.history['v_loss'].append(v_loss)
-        self.history['t_acc'].append(t_acc)
-        self.history['v_acc'].append(v_acc)
+        self.history['t_metrics'].append(t_metrics)
+        self.history['v_metrics'].append(v_metrics)
 
-    def update_callbacks(self, epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou):
+    def update_callbacks(self, epoch, t_loss, v_loss, t_metrics, v_metrics):
         if self.logger:
-            self.logger.log(epoch, t_loss, v_loss, t_acc, v_acc, t_iou, v_iou)
+            self.logger.log(epoch, t_loss, v_loss, t_metrics, v_metrics)
         
         if self.checkpoint:
             self.checkpoint.save(self.model, epoch, v_loss)
 
         if self.tboard:
-            self.tboard.add([t_loss, v_loss, t_acc, v_acc, t_iou, v_iou], epoch)
+            self.tboard.add([t_loss, v_loss, 
+                             t_metrics['acc'], t_metrics['precision'], t_metrics['recall'], 
+                             v_metrics['acc'], v_metrics['precision'], v_metrics['recall'],], 
+                             epoch
+                             )
 
     def plot_history(self):
         pass
@@ -176,19 +205,16 @@ class Coach:
         print('start fit!')
         for epoch in tqdm(range(start_epoch, epoches)):
             print(f'{epoch=}')
-            t_loss, t_acc= self.train_step(epoch, train_data)
+            t_loss, t_metrics = self.train_step(epoch, train_data)
             if val_data:
-                v_loss, v_acc = self.val_step(epoch, val_data)
+                v_loss, v_metrics = self.val_step(epoch, val_data)
             else:
-                v_loss, v_acc = 0., 0.
+                v_loss, v_metrics = 0., 0., 0., 0.
             
-            self.update_callbacks(epoch, t_loss, v_loss, t_acc, v_acc, None, None)
-            self.update_history(t_loss, v_loss, t_acc, v_acc)
-            #if self.tboard:
-            #    self.tboard.add_scalar('Loss/train', t_loss, epoch)
-            #    self.tboard.add_scalar('Loss/train', v_loss, epoch)
+            self.update_callbacks(epoch, t_loss, v_loss, t_metrics, v_metrics)
+            self.update_history(t_loss, v_loss, t_metrics, v_metrics)
         if self.save_dir:
-            torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_acc}.pth'))
+            torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_metrics["acc"]}.pth'))
         return self.history
 
 

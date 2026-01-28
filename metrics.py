@@ -2,6 +2,23 @@ import numpy as np
 from numpy import ndarray
 import torch
 from torchvision.ops.boxes import box_area
+from torcheval.metrics.functional import binary_accuracy, multiclass_accuracy, multiclass_recall, multiclass_precision
+
+class MultiMetrics:
+    
+    def __init__(self):
+        self.acc = multiclass_accuracy
+        self.recall = multiclass_recall
+        self.precision = multiclass_precision
+
+    def __call__(self, pred, label):
+        return {
+            'acc': self.acc(pred, label).item(),
+            'recall': self.recall(pred, label).item(),
+            'precision': self.precision(pred, label).item(),
+        }
+
+
 
 
 def to_corners(bboxes):

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import onnxruntime as ort
 import numpy as np
 import cv2
@@ -8,7 +9,12 @@ import visualizer as vis
 import argparse
 import yaml
 import utils
+from tqdm import tqdm
+#import torchvision.transforms as T
 #from loguru import logger
+
+
+IMG_FORMATS = {'.jpg', '.png', '.jpeg'}
 
 
 class Resizer:
@@ -67,16 +73,26 @@ class InferModel:
         """
         (H, W, C) -> (B, C, H, W)
         """
-        if len(image.shape) == 2 or image.shape[-1] == 1:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img_shape = image.shape
+        h, w, _ = img_shape
+        orig_size = np.array([[w, h]], dtype=np.int64)
         if img_shape[0] != self.size[0][0] or img_shape[1] != self.size[0][1]:
-            image = cv2.resize(image, self.size[0])
-        img = image.transpose((2, 0, 1))
-        img = np.expand_dims(img, 0)
-        img = img.astype(np.float32)
-        img /= 255
-        return img, img_shape
+            image = cv2.resize(image, self.size[0], interpolation=cv2.INTER_LINEAR)
+        img = image.astype(np.float32) / 255.0
+        img = np.transpose(img, (2, 0, 1))
+        img = np.expand_dims(img, axis=0) 
+        return img, orig_size
+        #print(f'image shape orig: {image.shape}')
+        #orig_size = torch.tensor([image.shape[1], image.shape[0]])[None]
+        #transforms = T.Compose([
+        #    T.ToPILImage(),
+        #    T.Resize((640, 640)),
+        #    T.ToTensor(),
+        #])
+        #img = transforms(image)[None]
+        #print(f'img data: {img.shape}')
+        #print(f'orig_size: {orig_size} | {orig_size.shape}')
+        #return img.numpy(), orig_size.numpy()
 
     def nms(self, bboxes, scores, threshold=0.5):
         if len(bboxes) == 0:
@@ -112,41 +128,59 @@ class InferModel:
 
     def __call__(self, image:np.ndarray, tr:list=[0, 0.1]) -> tuple[np.ndarray]:
         image, img_shape = self.preproc_image(image)
-        _, bboxes, scores = self.model.run(None, {self.in_img:image, self.in_shape:self.size})
+        labels, bboxes, scores = self.model.run(None, {self.in_img:image, self.in_shape:img_shape})
         scores = scores[0]
+        labels = labels[0]
+        bboxes = bboxes[0]
+
+        #l_mask = labels != 1
+        #scores = scores[l_mask]
+        #bboxes = bboxes[l_mask]
+        #labels = labels[l_mask]
         mask = (scores > tr[0]) & (scores < tr[1])
         tr_scores = scores[mask]
-        tr_bboxes = bboxes[0][mask]
+        tr_bboxes = bboxes[mask]
+        tr_labels = labels[mask]
         #print(f'{tr_scores.shape=}')
         #print(f'{tr_bboxes.shape=}')
         keep_indices = self.nms(tr_bboxes, tr_scores, threshold=0.3)
-
-        # Отфильтрованные bounding boxes
+#
+        ## Отфильтрованные bounding boxes
         tr_bboxes = tr_bboxes[keep_indices]
         tr_scores = tr_scores[keep_indices]
-        #tr_bboxes = tr_bboxes[scores > tr[1]]
-        if image.shape[2:] != img_shape[:-1]:
-            tr_bboxes = self.resizer.resize_coords(tr_bboxes, img_shape, True)
-        return tr_bboxes, tr_scores
+        tr_labels = tr_labels[keep_indices]
+        ##tr_bboxes = tr_bboxes[scores > tr[1]]
+        #if image.shape[2:] != img_shape[:-1]:
+        #    tr_bboxes = self.resizer.resize_coords(tr_bboxes, img_shape[0], True)
+        return tr_bboxes, tr_scores, labels
 
 
 def load_image(path:str) -> np.ndarray:
     img = cv2.imread(path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return img, [img.shape[0], img.shape[1]]
+    #h, w = img.shape[:2]
+    #orig_size = np.array([[w, h]], dtype=np.int64)
+    #im_resized = cv2.resize(img, (640, 640), interpolation=cv2.INTER_LINEAR)
+    #
+    ## Нормализация и преобразование в формат [1, C, H, W]
+    #im_data = im_resized.astype(np.float32) / 255.0  # Нормализация
+    #im_data = np.transpose(im_data, (2, 0, 1))  # HWC -> CHW
+    #im_data = np.expand_dims(im_data, axis=0) 
+    return img, None
 
 
 def save_img(img:np.ndarray, path:str):
     cv2.imwrite(path, img)
 
 
-def pred_vid(model:InferModel, cfg:dict): 
-    print(f'vid: {cfg["data_path"].split("/")[-1]}')
+def pred_vid(model:InferModel, data_path, save_dir, tr, color, thic=3): 
+    vid_name = data_path.split("/")[-1]
+    print(f'vid: {vid_name}')
     print(f'infer runing...')
-    cap = cv2.VideoCapture(cfg['data_path'])
+    cap = cv2.VideoCapture(data_path)
     if cap.isOpened() == False:
         print('Error')
-    img_dir_path = os.path.join(cfg['save_path'], 'images')
+    img_dir_path = os.path.join(save_dir, 'images')
     utils.mkdir(img_dir_path)
     count = 0
     pred_list = []
@@ -155,38 +189,78 @@ def pred_vid(model:InferModel, cfg:dict):
         ret, frame = cap.read()
         if not ret:
             break
-        bboxes, scores = model(frame, cfg['tr'])
-        draw_image = vis.show_img_pred(frame, bboxes, conf=scores, color=cfg['color'], thickness=cfg['thic'])
+        bboxes, scores, labels = model(frame, tr)
+        draw_image = vis.show_img_pred(frame, bboxes, conf=scores, labels=labels, color=color, thickness=thic)
         save_path = os.path.join(img_dir_path, str(count) + '.jpg')
         save_img(draw_image, save_path)
         pred_list.append(
             {
                 'image_id': count,
                 'img_size': frame.shape,
-                'bboxes': bboxes,
-                'scores': scores.tolist()
+                'bboxes': bboxes.tolist(),
+                'scores': scores.tolist(),
+                'labels': labels.tolist()
             }
         )
-    result_path = os.path.join(cfg['save_path'], 'result.json')
+    result_path = os.path.join(save_dir, f'{vid_name.split(".")[0]}_result.json')
     utils.save_json(pred_list, result_path)
     print('done')
 
 
+def is_vid(path:str) -> str:
+    vid_formats = ['mp4', 'webm']
+    name = path.split('/')[-1]
+    if name.split('.')[-1] in vid_formats:
+        return 'vid'
+    else:
+        return 'folder'
+
+
 def main(cfg:dict):
     model = InferModel(cfg['model_path'], cfg['in_size'])
-    utils.mkdir(cfg['save_path'])
+    print(f'mode: {config['mode']}')
     if cfg['mode'] == 'img':
-        img, img_size = load_image(cfg['data_path'])
-        #img = cv2.resize(img, [640, 640])
-        print(img.shape)
-        bboxes, scores = model(img, cfg['tr'])
-        draw_image = vis.show_img_pred(img, bboxes, color=cfg['color'], thickness=cfg['thic'])
-        print(draw_image.shape)
-        plt.imshow(draw_image)
-        plt.show()
-        #save_img(draw_image, cfg['save_path'])
+        source_path = Path(cfg['data_path'])
+        if source_path.is_file():
+            img, orig_size = load_image(cfg['data_path'])
+            #img = cv2.resize(img, [640, 640])
+            bboxes, scores, labels = model(img, cfg['tr'])
+            draw_image = vis.show_img_pred(img, bboxes, color=cfg['color'], thickness=cfg['thic'])
+            print(draw_image.shape)
+            plt.imshow(draw_image)
+            plt.show()
+        elif source_path.is_dir():
+            utils.mkdir(cfg['save_path'])
+            for i, img_path in tqdm(enumerate(source_path.iterdir())):
+                if img_path.suffix.lower() in IMG_FORMATS:
+                    img, orig_size = load_image(str(img_path))
+                    bboxes, scores, labels = model(img, cfg['tr'])
+                    draw_image = vis.show_img_pred(img, bboxes, conf=scores, color=cfg['color'], thickness=cfg['thic'])           
+                    save_path = os.path.join(cfg['save_path'], f'{i}.jpg')
+                    save_img(draw_image, save_path)
+            print('done!')
+        else:
+            print(f'Wrong data_path: {source_path}')
     elif cfg['mode'] == 'vid':
-        pred_vid(model, cfg)
+        utils.mkdir(cfg['save_path'])
+        data_type = is_vid(cfg['data_path'])
+        print(f'data type: {data_type}')
+        if data_type == 'vid':
+            pred_vid(model, 
+                     config['data_path'], config['save_path'], 
+                     config['tr'], config['color'],config['thic']
+                     )
+        else:
+            vid_names = os.listdir(cfg['data_path'])
+            print(f'num vids: {len(vid_names)}')
+            for vid_name in vid_names:
+                data_path = os.path.join(cfg['data_path'], vid_name)
+                save_path = os.path.join(cfg['save_path'], vid_name)
+                utils.mkdir(save_path)
+                pred_vid(model, 
+                         data_path, save_path, 
+                         config['tr'], config['color'], config['thic']
+                         )
     else:
         print(f'wrong mode: {cfg["mode"]}')
     

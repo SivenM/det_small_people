@@ -99,7 +99,7 @@ class TransformerDecoder(nn.Module):
     
 
 class VisTransformer(nn.Module):
-    def __init__(self, num_blocks:int, encoder_type:str=None, num_cls:int=1) -> None:
+    def __init__(self, num_blocks:int, encoder_type:str=None, num_cls:int=1, input_c:int=10) -> None:
         super().__init__()
         self.num_blocks = num_blocks
         self.num_cls = num_cls
@@ -109,24 +109,66 @@ class VisTransformer(nn.Module):
                 layers.PatchEncoderConv2D(100, 256, 5, 10)
             )
         else:
-            self.encoder = layers.PatchEncoderConv2D(100, 256, 5, 10)
+            self.encoder = layers.PatchEncoderConv2D(100, 256, 5, input_c)
         self.transformer_blocks = nn.Sequential(
             *[TransformerBlock() for _ in range(num_blocks)]
         )
-        self.glob_avg = nn.AdaptiveAvgPool2d((1,1))
+        #self.glob_avg = nn.AdaptiveAvgPool2d((1,1))
+        self.seq_pool = layers.SeqPool(256)
+        self.head = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.GELU(),
+            nn.Linear(256, num_cls),
+            nn.Sigmoid() if num_cls == 1 else nn.Identity()
+        )
+        self.flatten = nn.Flatten(start_dim=1)
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        blocks_out = self.transformer_blocks(encoded)
+        avg = self.seq_pool(blocks_out)
+        out = self.head(avg)
+        if not self.training:
+            return F.softmax(out, dim=1)
+        else:
+            return out
+
+
+class VisTransformerMean(nn.Module):
+    def __init__(self, num_blocks:int, encoder_type:str=None, num_cls:int=1, input_c:int=10) -> None:
+        super().__init__()
+        self.num_blocks = num_blocks
+        self.num_cls = num_cls
+        if encoder_type == 'pad':
+            self.encoder = nn.Sequential(
+                layers.PatchEncoderPad((50,50)),
+                layers.PatchEncoderConv2D(100, 256, 5, 10)
+            )
+        else:
+            self.encoder = layers.PatchEncoderConv2D(100, 256, 5, input_c)
+        self.transformer_blocks = nn.Sequential(
+            *[TransformerBlock() for _ in range(num_blocks)]
+        )
+        #self.glob_avg = nn.AdaptiveAvgPool1d((1,1))
+        self.seq_pool = layers.SeqPool(256)
         self.head = nn.Sequential(
             nn.Linear(1, 256),
             nn.GELU(),
             nn.Linear(256, num_cls),
             nn.Sigmoid() if num_cls == 1 else nn.Identity()
         )
+        self.flatten = nn.Flatten(start_dim=1)
 
     def forward(self, x):
         encoded = self.encoder(x)
         blocks_out = self.transformer_blocks(encoded)
-        avg = self.glob_avg(blocks_out).squeeze(1)
+        avg = blocks_out.mean(dim=(1,2))
+        avg = avg.unsqueeze(1)
         out = self.head(avg)
-        return out.squeeze()
+        if not self.training:
+            return F.softmax(out, dim=1)
+        else:
+            return out
 
 
 # CCT realizations#

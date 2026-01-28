@@ -354,12 +354,12 @@ class CropDataset(Dataset):
             assert len(img.shape) == 3
             if img.shape[-1] == 3:
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-                img = np.expand_dims(img, axis=-1)
-            assert img.shape[-1] == 1, f'{img.shape=}'
+            elif img.shape == 1:
+                img = img[:, :, 0]
             #logger.info(img.shape)
             resized = cv2.resize(img, (w, h))
-            out.append(np.expand_dims(resized, axis=-1))
-        return np.concatenate(out, axis=2)
+            out.append(np.expand_dims(resized, axis=0))
+        return np.concatenate(out, axis=0)
     
     def prepare_sample(self, sample:list) -> np.ndarray:
         
@@ -419,8 +419,16 @@ class CropDatasetV2(CropDataset):
         label = self.prepare_label(label)
         if self.transform:
             sample = self.transform(sample)
+        else:
+            sample = torch.tensor(sample)
+            sample = sample.to(torch.float32)
+            sample /= 255.
+
         if self.target_transforms:
             label = self.target_transforms(label)
+        else:
+            label = torch.tensor(label)
+            
         if self.pad:
             sample = self.pad.get_pad(sample)
         return sample, label

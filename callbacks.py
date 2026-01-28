@@ -11,12 +11,15 @@ class CSVLogger:
         self.filepath = os.path.join(dir_path, 'logs.csv')
         with open(self.filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'val_acc', 't_iou', 'v_iou'])
+            writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'precision', 'recall', 'val_acc', 'v_precision', '_vrecall',])
 
-    def log(self, epoch:int, loss:float, val_loss:float, acc:float, val_acc:float, t_iou:float, v_iou:float):
+    def log(self, epoch:int, loss:float, val_loss:float, t_metrics:dict, v_metrics:dict):
         with open(self.filepath, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([epoch, loss, val_loss, acc, val_acc, t_iou, v_iou])
+            writer.writerow([epoch, loss, val_loss, 
+                             t_metrics['acc'], t_metrics['precision'], t_metrics['recall'], 
+                             v_metrics['acc'], v_metrics['precision'], v_metrics['recall']]
+                             )
 
 
 class ModelCheckpoint:

@@ -163,6 +163,7 @@ class PatchEncoderConv2D(nn.Module):
         else:
             return patches
 
+
 class PatchEncoderPad(nn.Module):
     def __init__(self, patch_size:tuple, ):
         super().__init__()
