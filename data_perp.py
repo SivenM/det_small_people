@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 from numpy import ndarray
 import random
@@ -19,9 +20,10 @@ class Loader:
     def __init__(self, img_dir, ann_dir, mode) -> None:
         self.img_dir = img_dir
         self.ann_dir = ann_dir
-        if mode == 'seq':
+        self.mode = mode
+        if self.mode == 'seq':
             self.ann_names = np.arange(1, len(os.listdir(self.ann_dir))-3)
-        elif mode == 'classic': #only frame_rate == 1 !
+        elif self.mode == 'classic': #only frame_rate == 1 !
             self.ann_names = os.listdir(self.ann_dir)
 
     def load_img(self, frame_num:int) -> ndarray:
@@ -94,7 +96,7 @@ class CropsLoader(Loader):
 class BgGenerator(Loader):
 
     def __init__(self, img_dir:str=None, ann_dir:str=None, range_hieght:tuple|list=(), range_width:tuple|list=(), chunk_size:int=10, img_size:tuple=(480, 640)) -> None:
-        super().__init__(img_dir, ann_dir)
+        super().__init__(img_dir, ann_dir, 'seq')
         self.dataset_name = ann_dir.split('/')[-2]
         self.chunk_size = chunk_size
         self.img_size = img_size
@@ -149,9 +151,19 @@ class BgGenerator(Loader):
 
     def load_imgs_bg(self, start_frame_name:int) -> ndarray:
         imgs = [self.load_img(i) for i in range(start_frame_name, start_frame_name + self.chunk_size)]
-        imgs = np.array(imgs)
-        return imgs
-
+        try:
+            imgs = np.array(imgs)
+            return imgs
+        except ValueError as e:
+            print(f"{e}\n")
+            for i, img in enumerate(imgs):
+                if img is None:
+                   print(f'{i}. {None}') 
+                else:
+                    print(f'{i}. img shape: {img.shape}')
+            print('seq skiped')
+            return None
+        
     def crop_bg(self, bg_coord:list, imgs:ndarray|list) -> tuple:
         label = 0
         if type(imgs) == list:
@@ -185,8 +197,9 @@ class BgGenerator(Loader):
             if len(np.where(iou > 0.3)[0]) > 0:
                 bg_coords = self.update_bg(obj_coords)
             imgs = self.load_imgs_bg(int(ann['name']))
-            bg_crops_labels = self.crop_bg(bg_coords, imgs)
-            self.save(bg_crops_labels, i, save_dir)
+            if imgs is not None:
+                bg_crops_labels = self.crop_bg(bg_coords, imgs)
+                self.save(bg_crops_labels, i, save_dir)
         print('done!')
         print(f'saved in {save_dir}')
 
@@ -353,7 +366,7 @@ class CropDataset(Dataset):
             assert type(img) == np.ndarray
             assert len(img.shape) == 3
             if img.shape[-1] == 3:
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
             elif img.shape == 1:
                 img = img[:, :, 0]
             #logger.info(img.shape)
@@ -371,7 +384,11 @@ class CropDataset(Dataset):
         data_path = self.path_list[index]
         sample, label = self.from_pickle(data_path)
         assert len(sample) == 10
-        sample = self.prepare_sample(sample)
+        try:
+            sample = self.prepare_sample(sample)
+        except Exception as e:
+            print(f"{e}\n{data_path=}")
+            sys.exit()
         if self.transform:
             sample = self.transform(sample)
         if self.target_transforms:
@@ -409,6 +426,8 @@ class CropDatasetV2(CropDataset):
         return out_dict
     
     def prepare_label(self, label:str):
+        if label == 'person':
+            label = 'human'
         return self.digit_labels[label]
 
     def __getitem__(self, index):

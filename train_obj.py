@@ -65,11 +65,23 @@ def main(config_list:list[dict]):
 if __name__ == '__main__':
     config_list = [
         {
-            'name': 'obj_VitSeqPool_10_1_1blocks',
+            'name': 'obj_VitSeqPool_10_1_1blocks_dv2',
             'model_type': 'seqpool',
-            'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_10_1_5_v3_clear_train_val/train',
-            'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_10_1_5_v3_clear_train_val/val',
-            'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
+            'train_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1',
+            'val_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val',
+            'labels': ['bg', 'human'],
+            'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls/test",
+            'num_blocks': 1,
+            'epoches': 200,
+            'lr': 0.001,
+            'len_seq': 10
+        },
+        {
+            'name': 'obj_VitSeqMean_10_1_1blocks_newDatasetAllv1',
+            'model_type': 'mean',
+            'train_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/train',
+            'val_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val',
+            'labels': ['human'],
             'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls/exp_no_imagenet_norm",
             'num_blocks': 1,
             'epoches': 100,

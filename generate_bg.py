@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import argparse
 from data_perp import BgGenerator
@@ -13,24 +14,30 @@ def get_dirs(path:str) -> str:
     return img_dir, ann_dir
 
 #@logger.trace
-def main(dataset_path:str, num_samples:int, img_size:tuple, range_width:tuple, range_height:tuple) -> None:
+def main(dataset_path:str, save_path:str, num_samples:int, img_size:tuple, range_width:tuple, range_height:tuple) -> None:
+    if save_path == 'bg_data':
+        save_dir = Path(dataset_path).parent / save_path
+    else:
+        save_dir = Path(save_path)
+    save_dir.mkdir(exist_ok=True)
     img_dir, ann_dir = get_dirs(dataset_path)
     logger.info(f'img dir: {img_dir}\nann_dir: {ann_dir}')
     bg_gen = BgGenerator(
         img_dir,
         ann_dir,
-        range_height,
-        range_width,
+        (int(range_height[0]), int(range_height[1])),
+        (int(range_width[0]), int(range_width[1])),
         10,
         img_size
     )
     logger.info("bg gen created")
-    bg_gen.generate(num_samples, save_dir=SAVE_DIR)
+    bg_gen.generate(num_samples, save_dir=save_dir)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="Программа для генерации сэмплов фона")
     parser.add_argument('-i', '--inputs', type=str, help='Путь до датасета')
+    parser.add_argument('-o', '--outputs', type=str, default='bg_data', help='путь до сохранения датасета')
     parser.add_argument('-n', '--num', type=int, default=2000, help='Количество bg сэмплов')
     parser.add_argument('-is', '--img_size', nargs='+', default=(480, 640), help='размеры изображения (H, W)')
     parser.add_argument('-w', '--range_width', nargs='+', default=(10, 50), help='ширина')
@@ -39,6 +46,7 @@ if __name__ == '__main__':
     logger.info("parsed")
     main(
         args.inputs, 
+        args.outputs,
         args.num, 
         args.img_size, 
         args.range_width, 

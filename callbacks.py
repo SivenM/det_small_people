@@ -5,21 +5,49 @@ from torch.utils.tensorboard import SummaryWriter
 import utils
 
 
-class CSVLogger:
+class CSVLogger__:
     def __init__(self, dir_path):
         utils.mkdir(dir_path)
         self.filepath = os.path.join(dir_path, 'logs.csv')
         with open(self.filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'precision', 'recall', 'val_acc', 'v_precision', '_vrecall',])
+            writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'precision', 'recall', 'val_acc', 'v_precision', 'v_recall'])
 
     def log(self, epoch:int, loss:float, val_loss:float, t_metrics:dict, v_metrics:dict):
+        print("Вызван log, epoch =", epoch)
+        row = [epoch, loss, val_loss, 
+           t_metrics.get('acc'), t_metrics.get('precision'), t_metrics.get('recall'),
+           v_metrics.get('acc'), v_metrics.get('precision'), v_metrics.get('recall')]
+        print("Строка для записи:", row)
         with open(self.filepath, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([epoch, loss, val_loss, 
-                             t_metrics['acc'], t_metrics['precision'], t_metrics['recall'], 
-                             v_metrics['acc'], v_metrics['precision'], v_metrics['recall']]
-                             )
+            writer.writerow(row)
+            f.flush()
+            print("Записали строку → flush выполнен")
+
+class CSVLogger:
+    def __init__(self, dir_path):
+        os.makedirs(dir_path, exist_ok=True)
+        self.filepath = os.path.join(dir_path, 'logs.csv')
+        print("Логгер будет писать в →", os.path.abspath(self.filepath))  # ← сразу видно
+        
+        self.f = open(self.filepath, 'w', newline='', encoding='utf-8')
+        self.writer = csv.writer(self.f)
+        self.writer.writerow(['epoch', 'loss', 'val_loss', 'acc', 'precision', 'recall', 'val_acc', 'v_precision', 'v_recall'])
+        self.f.flush()
+
+    def log(self, epoch:int, loss:float, val_loss:float, t_metrics:dict, v_metrics:dict):
+        row = [epoch, loss, val_loss, 
+           t_metrics.get('acc'), t_metrics.get('precision'), t_metrics.get('recall'),
+           v_metrics.get('acc'), v_metrics.get('precision'), v_metrics.get('recall')]
+        self.writer.writerow(row)
+        self.f.flush()
+        print("Записана эпоха", epoch, "→ размер файла теперь", os.path.getsize(self.filepath))
+
+    def close(self):
+        if not self.f.closed:
+            self.f.flush()
+            self.f.close()
 
 
 class ModelCheckpoint:

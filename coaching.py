@@ -103,12 +103,13 @@ class Coach:
             total=(len(data)),
             disable=False
         )
-        print(f'train step!')
+        #print(f'train step!')
         for batch, (sample, label) in progress_bar:
             self.optimizer.zero_grad()
             sample, label = sample.to(self.device), label.to(self.device)
             pred = self.model(sample)
             pred = pred
+            #print(f'{pred=}\n{label}\n\n')
             loss = self.loss_fn(pred, label)
             t_loss += loss.item()
             #if self.debug:
@@ -149,6 +150,7 @@ class Coach:
                 sample, label= sample.to(self.device), label.to('cuda').squeeze(-1)
                 pred = self.model(sample)
                 pred = pred.squeeze(-1)
+                #print(f'{pred=}\n{label}\n\n')
                 loss = self.loss_fn(pred, label)
                 v_loss += loss.item()
                 metrics = self.metric(pred, label)
@@ -180,7 +182,9 @@ class Coach:
         self.history['v_metrics'].append(v_metrics)
 
     def update_callbacks(self, epoch, t_loss, v_loss, t_metrics, v_metrics):
+        print('callbacks started')
         if self.logger:
+            print('csv logger run')
             self.logger.log(epoch, t_loss, v_loss, t_metrics, v_metrics)
         
         if self.checkpoint:
