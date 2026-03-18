@@ -3,7 +3,7 @@ from data_perp import CropDatasetV2
 from coaching import Coach
 from models.transformer import VisTransformer, VisTransformerMean
 import argparse
-
+import yaml
 import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -14,6 +14,17 @@ def print_cfg(config:dict):
     for k, v in config.items():
         print(f'{k}: {v}')
     print('\n')
+
+
+def get_args():
+    parser = argparse.ArgumentParser(prog="Скрипт обучения для моделей классификации последовательностей")
+    parser.add_argument("-c", "--config", type=argparse.FileType('r'), default=None, help="Путь до конфига")
+    args = parser.parse_args()
+    if args.config:
+        config = yaml.safe_load(args.config)
+        return config
+    else:
+        return
 
 
 def main(config_list:list[dict]):
@@ -62,100 +73,11 @@ def main(config_list:list[dict]):
             print(f'train stoped')
             sys.exit()
         
-if __name__ == '__main__':
-    config_list = [
-        {
-            'name': 'obj_VitSeqPool_10_1_1blocks_dv2',
-            'model_type': 'seqpool',
-            'train_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1',
-            'val_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val',
-            'labels': ['bg', 'human'],
-            'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls/test",
-            'num_blocks': 1,
-            'epoches': 200,
-            'lr': 0.001,
-            'len_seq': 10
-        },
-        {
-            'name': 'obj_VitSeqMean_10_1_1blocks_newDatasetAllv1',
-            'model_type': 'mean',
-            'train_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/train',
-            'val_data_path': '/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val',
-            'labels': ['human'],
-            'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls/exp_no_imagenet_norm",
-            'num_blocks': 1,
-            'epoches': 100,
-            'lr': 0.001,
-            'len_seq': 10
-        },
-        #{
-        #    'name': 'obj_VitSeqMean_10_1_4blocks',
-        #    'model_type': 'mean',
-        #    'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_10_1_5_v3_clear_train_val/train',
-        #    'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_10_1_5_v3_clear_train_val/val',
-        #    'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
-        #    'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls",
-        #    'num_blocks': 4,
-        #    'epoches': 150,
-        #    'lr': 0.001,
-        #    'len_seq': 10
-        #},
-        #{
-        #    'name': 'exp2_obj_20_1',
-        #    'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_20_1_5_v3_clear_train_val/train',
-        #    'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_20_1_5_v3_clear_train_val/val',
-        #    'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
-        #    'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls",
-        #    'num_blocks': 1,
-        #    'epoches': 100,
-        #    'lr': 0.001,
-        #    'len_seq': 20
-        #},
-        #{
-        #    'name': 'exp2_obj_20_2',
-        #    'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_20_2_10_v3_clear_train_val/train',
-        #    'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_20_2_10_v3_clear_train_val/val',
-        #    'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
-        #    'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls",
-        #    'num_blocks': 1,
-        #    'epoches': 100,
-        #    'lr': 0.001,
-        #    'len_seq': 20
-        #},
-        #{
-        #    'name': 'exp2_obj_5_1',
-        #    'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_5_1_5_v3_clear_train_val/train',
-        #    'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_5_1_5_v3_clear_train_val/val',
-        #    'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
-        #    'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls",
-        #    'num_blocks': 1,
-        #    'epoches': 100,
-        #    'lr': 0.001,
-        #    'len_seq': 5
-        #},
-        #{
-        #    'name': 'exp2_obj_8_1',
-        #    'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_8_1_5_v3_clear_train_val/train',
-        #    'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_8_1_5_v3_clear_train_val/val',
-        #    'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
-        #    'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls",
-        #    'num_blocks': 1,
-        #    'epoches': 100,
-        #    'lr': 0.001,
-        #    'len_seq': 8
-        #},
-        #{
-        #    'name': 'exp2_obj_9_3',
-        #    'train_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_9_3_10_v3_clear_train_val/train',
-        #    'val_data_path': '/home/max/ieos/data/datasets/window_vid_5_v2.1/gen_9_3_10_v3_clear_train_val/val',
-        #    'labels': ['false_det', 'human', 'human_dynamic', 'human_static'],
-        #    'save_dir': "/home/max/ieos/small_obj/vid_pred/runs/sequense_cls",
-        #    'num_blocks': 1,
-        #    'epoches': 100,
-        #    'lr': 0.001,
-        #    'len_seq': 9
-        #},
-        
-    ]
 
-    main(config_list)
+if __name__ == '__main__':
+    config_list = get_args()
+    if config_list:
+        main(config_list)
+    else:
+        print("\nConfig not not found. Use `python train_obj.py -c config.yaml`")
+    

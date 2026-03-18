@@ -1,0 +1,32 @@
+- name: obj_VitSeqPool_10_1_1blocks_dv2_chunk1
+  model_type: seqpool
+  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
+  val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
+  labels: [bg, human]
+  save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
+  num_blocks: 1
+  epoches: 200
+  lr: 0.001
+  len_seq: 10
+
+- name: obj_VitSeqPool_10_1_1blocks_dv2_chunk2
+  model_type: seqpool
+  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_2
+  val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
+  labels: [bg, human]
+  save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
+  num_blocks: 1
+  epoches: 200
+  lr: 0.001
+  len_seq: 10
+
+- name: obj_VitSeqPool_10_1_1blocks_dv2_chunk3
+  model_type: seqpool
+  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_3
+  val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
+  labels: [bg, human]
+  save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
+  num_blocks: 1
+  epoches: 200
+  lr: 0.001
+  len_seq: 10

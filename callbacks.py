@@ -42,7 +42,7 @@ class CSVLogger:
            v_metrics.get('acc'), v_metrics.get('precision'), v_metrics.get('recall')]
         self.writer.writerow(row)
         self.f.flush()
-        print("Записана эпоха", epoch, "→ размер файла теперь", os.path.getsize(self.filepath))
+        #print("Записана эпоха", epoch, "→ размер файла теперь", os.path.getsize(self.filepath))
 
     def close(self):
         if not self.f.closed:
