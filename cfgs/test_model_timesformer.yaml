@@ -1,0 +1,14 @@
+dataset: "/mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val"
+model_path: "runs/sequense_cls/v2/obj_TimeSformer_10_1_1b_h4_hd1024_dv2_chunk1/models/last_acc0.9672748073217726.pth"
+model_type: "timesformer"
+model_params:
+  num_blocks: 1
+  num_cls:  2
+  emb_dim:  256
+  patch_size: 5
+  num_frames: 10
+  num_patches: 100
+  num_heads: 4
+  hidden_dim: 1024
+
+save_dir: "/mnt/storage/data/ieos_data/test_results/timesformer_tests/10_1_1b_h4_hd1024_dv2_chunk1__val"

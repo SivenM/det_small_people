@@ -218,7 +218,7 @@ class Coach:
             self.update_callbacks(epoch, t_loss, v_loss, t_metrics, v_metrics)
             self.update_history(t_loss, v_loss, t_metrics, v_metrics)
         if self.save_dir:
-            torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_metrics["acc"]}.pth'))
+            torch.save(self.model.state_dict(), os.path.join(self.save_dir, f'last_acc{v_metrics["acc"]:.2f}.pth'))
         return self.history
 
 

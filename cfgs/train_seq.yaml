@@ -1,32 +1,89 @@
-- name: obj_VitSeqPool_10_1_1blocks_dv2_chunk1
-  model_type: seqpool
+- name: obj_TimeSformer_10_1_2b_h4_hd1024_dv2_chunk1
+  model_type: timesformer
   train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
   val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
   labels: [bg, human]
   save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
-  num_blocks: 1
-  epoches: 200
+  num_blocks: 2
+  epoches: 100
   lr: 0.001
+  batch_size: 16
   len_seq: 10
+  pad_size: [50, 50]
+  num_heads: 4
+  hidden_dim: 256
+  patch_size: 5
 
-- name: obj_VitSeqPool_10_1_1blocks_dv2_chunk2
-  model_type: seqpool
-  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_2
+- name: obj_TimeSformer_10_1_3b_h4_hd1024_dv2_chunk1
+  model_type: timesformer
+  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
   val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
   labels: [bg, human]
   save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
-  num_blocks: 1
+  num_blocks: 3
   epoches: 200
   lr: 0.001
+  batch_size: 16
   len_seq: 10
+  pad_size: [50, 50]
+  num_heads: 4
+  hidden_dim: 512
+  patch_size: 5
 
-- name: obj_VitSeqPool_10_1_1blocks_dv2_chunk3
-  model_type: seqpool
-  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_3
+- name: obj_TimeSformer_10_1_4b_h4_hd1024_dv2_chunk1
+  model_type: timesformer
+  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
   val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
   labels: [bg, human]
   save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
-  num_blocks: 1
+  num_blocks: 4
   epoches: 200
   lr: 0.001
+  batch_size: 16
   len_seq: 10
+  pad_size: [50, 50]
+  num_heads: 4
+  hidden_dim: 1024
+  patch_size: 5
+
+#- name: obj_TimeSformer_10_1_2b_h4_hd256_dv2_chunk1
+#  model_type: timesformer
+#  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
+#  val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
+#  labels: [bg, human]
+#  save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
+#  num_blocks: 2
+#  epoches: 100
+#  lr: 0.001
+#  len_seq: 10
+#  pad_size: [50, 50]
+#  num_heads: 4
+#  hidden_dim: 256
+#
+#- name: obj_TimeSformer_10_1_2b_h4_hd512_dv2_chunk1
+#  model_type: timesformer
+#  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
+#  val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
+#  labels: [bg, human]
+#  save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
+#  num_blocks: 2
+#  epoches: 100
+#  lr: 0.001
+#  len_seq: 10
+#  pad_size: [50, 50]
+#  num_heads: 4
+#  hidden_dim: 512
+#
+#- name: obj_TimeSformer_10_1_1b_h8_hd256_dv2_chunk1
+#  model_type: timesformer
+#  train_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/chunk_1
+#  val_data_path: /mnt/storage/data/ieos_data/people_data_set/seq_datasets/overall_cutted_c10_r1_v1_train_val/val
+#  labels: [bg, human]
+#  save_dir: /home/max/ieos/small_obj/vid_pred/runs/sequense_cls/v2
+#  num_blocks: 1
+#  epoches: 100
+#  lr: 0.001
+#  len_seq: 10
+#  pad_size: [50, 50]
+#  num_heads: 8
+#  hidden_dim: 256

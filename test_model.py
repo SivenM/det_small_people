@@ -1,7 +1,6 @@
-from data_perp import TestCropDataset, DETRDataset, DetrLocDatasetTest, DETRDatasetTest
+from data_perp import TestCropDataset, DETRDataset, DetrLocDatasetTest, DETRDatasetTest, TestCropDatasetV2
 from models import transformer, detr_zoo, backbones
 import utils
-
 import os
 import csv
 import yaml
@@ -9,30 +8,44 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
-from torcheval.metrics.functional import binary_accuracy
+from metrics import TestMultiMetrics
 import matplotlib.pylab as plt
 from tqdm import tqdm
 import cv2
 import numpy as np
 import argparse
+from visualizer import get_vis
+
+
+SEQ_MODELS = ['seq_det', 'seq_det_one_frame', 'def_endet']
 
 
 class CSVLogger:
     def __init__(self, dir_path):
-        self.filepath = os.path.join(dir_path, 'results.csv')
-        with open(self.filepath, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['idx', 'pred', 'gt', 'acc', 'height', 'width', 'img_path'])
+        os.makedirs(dir_path, exist_ok=True)
+        self.filepath = os.path.join(dir_path, 'pred_results.csv')
+        print("Логгер будет писать в →", os.path.abspath(self.filepath))  # ← сразу видно
+        
+        self.f = open(self.filepath, 'w', newline='', encoding='utf-8')
+        self.writer = csv.writer(self.f)
+        self.writer.writerow(['name', 'predict', 'groud_true'])
+        self.f.flush()
 
-    def log(self, idx:int, pred:float, gt:float, acc:float=None, size:tuple=None, img_path:str=None):
-        with open(self.filepath, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([idx, pred, gt, acc, size[0], size[1], img_path])
+    def log(self, name:int, pred:float, gt:float):
+        row = [name, pred, gt]
+        self.writer.writerow(row)
+        self.f.flush()
+        #print("Записана эпоха", epoch, "→ размер файла теперь", os.path.getsize(self.filepath))
+
+    def close(self):
+        if not self.f.closed:
+            self.f.flush()
+            self.f.close()
 
 
 class ObjTester:
 
-    def __init__(self, dataset:Dataset, save_dir=None, vis=True) -> None:
+    def __init__(self, dataset:Dataset, save_dir=None, vis=True, device='cpu') -> None:
         self.dataset = dataset
         self.vis = vis
         self.save_dir = save_dir
@@ -40,6 +53,30 @@ class ObjTester:
         self.results_dir = os.path.join(save_dir, 'results')
         utils.mkdir(self.results_dir)
         self.pred_logger = CSVLogger(save_dir)
+        self.metric = TestMultiMetrics()
+        self.device = device
+
+    def draw_result(self,
+            sample:list[np.ndarray], 
+            target:float, pred:float, 
+            size:tuple[int]=None, name:str='test.jpg'
+            ):
+        fig = plt.figure(figsize=(10,8))
+        if target == 1:
+            label = 'human'
+        else:
+            label = 'bg'
+        if size:
+            plt.title(f'{name}| {label} | pred: {pred:.2f}\n sample size: {size}')
+        else:
+            plt.title(f'{name}| {label} | pred: {pred:.2f}')
+        plt.axis('off')
+        img = get_vis(sample)
+        plt.imshow(img, cmap='gray')
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.results_dir, f'{name}.jpg'), bbox_inches='tight', pad_inches=0.1)
+        fig.clf()
+        plt.close()
 
     def show_pred(self, sample, target, pred, s_size=None, idx=None, show=False):
         fig = plt.figure(figsize=(10,8))
@@ -68,32 +105,33 @@ class ObjTester:
             plt.savefig(os.path.join(self.results_dir, str(idx)+'.jpg'), bbox_inches='tight', pad_inches=0.1)
         fig.clf()
         plt.close()
-    
-    def stat(self, sample, pred, gt, size, idx, img_path):
-        acc = binary_accuracy(pred, gt)
-        self.show_pred(sample, gt, pred, size, idx)
-        self.pred_logger.log(
-            idx,
-            pred,
-            gt,
-            acc,
-            size,
-            img_path
-        )
 
     def test_model(self, model):
-        for i, (sample, gt, meta) in tqdm(enumerate(self.dataset), desc='testing'):
-            pred = model(sample.unsqueeze(0))
-            acc = binary_accuracy(pred.unsqueeze(0), gt)
-            self.show_pred(sample, gt, pred, meta['size'], i)
+        num_data = len(self.dataset)
+        for i in tqdm(range(num_data), desc='testing'):
+            c_sample, sample, gt, meta = self.dataset[i]
+            sample, gt = sample.to(self.device), gt.to(self.device)
+            sample = sample.unsqueeze(0)
+            gt = gt.unsqueeze(0)
+            pred = model(sample)
+            self.metric.update(pred, gt)
+            prob = torch.argmax(pred, dim=-1)
+            self.draw_result(c_sample, gt.item(), prob.item(), meta['size'], meta['name'])
             self.pred_logger.log(
-                i,
-                pred.item(),
+                meta['name'],
+                prob.item(),
                 gt.item(),
-                acc.item(),
-                meta['size'],
-                meta['path']
             )
+        acc, prec, recall = self.metric.put()
+        print('='*40)
+        print(f"acc: {acc}")
+        print(f"precision: {prec}")
+        print(f"recall: {recall}")
+        print('='*40)
+        utils.save_json(
+            {'acc': acc, 'precision': prec, 'recall':recall}, os.path.join(self.save_dir, 'metrics.json')
+        )
+        print(f"result saved in {self.save_dir}")
 
 
 class DetrLocTester:
@@ -283,6 +321,17 @@ class TestModel:
                                                 model_params['emb_dim'],
                                                 model_params['num_encoder_blocks'],
                                                 )
+        elif model_type == 'timesformer':
+            self.model = transformer.TimeSfromerCls(
+                model_params['num_blocks'],
+                model_params['num_cls'],
+                model_params['emb_dim'],
+                model_params['patch_size'],
+                model_params['num_frames'],
+                model_params['num_patches'],
+                model_params['num_heads'],
+                model_params['hidden_dim'],
+            )
         else:
             raise 'Wrong model type. Only: vit, detr, detr_loc'
         self._load_model()
@@ -359,32 +408,34 @@ def load_dataset(dataset_path:str, model_type:str):
             mode='rgb',
             size=[224,224]
             )
+    elif model_type == 'timesformer':
+        dataset = TestCropDatasetV2(dataset_path, ['bg', 'human'], times_mode=True)
     else:
         raise 'Wrong model type. Only: vit, detr, detr_loc'
     return dataset
 
 
 def create_tester(dataset:Dataset, model_type:str, save_dir:str):
-    if model_type == 'vit':
+    if model_type == 'vit' or model_type == 'timesformer':
         return ObjTester(dataset, save_dir)
     elif model_type == 'detr_loc':
         return DetrLocTester(dataset, save_dir)
     elif model_type == 'detr':
         pass
-    elif model_type == 'seq_det' or model_type == 'seq_det_one_frame' or model_type == 'def_endet':
+    elif model_type in SEQ_MODELS:
         return  DetTester(dataset, save_dir)
     else:
-        raise TypeError('Wrong model type. Only: vit, detr, detr_loc')
+        raise TypeError('Wrong model type. Only: vit, detr, detr_loc or seq models')
 
 
 def main(config:dict) -> None:
     print(f'model type: {config['model_type']}')
-    test_model = TestModel(config['model_path'], config['model_type'], config['model_params'])
-    test_dataset = load_dataset(config['dataset'], config['model_type'])
-    tester = create_tester(test_dataset, config['model_type'], config['save_dir'])
-
-    tester.test_model(test_model)
+    model = TestModel(config['model_path'], config['model_type'], config['model_params'])
+    dataset = load_dataset(config['dataset'], config['model_type'])
+    tester = create_tester(dataset, config['model_type'], config['save_dir'])
+    tester.test_model(model)
     print('Done!')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

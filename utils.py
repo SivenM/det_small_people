@@ -11,6 +11,66 @@ import torchvision.transforms.functional as F
 import pickle
 
 
+class ZeroPad():
+    """
+    Добавляет нулевой паддинг для изображения
+    """
+    def __init__(self, patch_size:tuple):
+        self.pad_size = patch_size
+
+    def get_pad_h(self, h:int):
+        assert h <= self.pad_size[1], f"Height ({h}) must be lower than patch_size {self.pad_size[1]}"
+        if h == self.pad_size[1]:
+            return (0,0)
+        else:
+            diff = self.pad_size[1] - h
+            if diff % 2 == 0:
+                return (diff // 2, diff // 2)
+            else:
+                return (diff // 2, diff // 2 + 1)
+        
+    def get_pad_w(self, w:int):
+        assert w <= self.pad_size[0], f"Height ({w}) must be lower than patch_size {self.pad_size[0]}"
+        if w == self.pad_size[0]:
+            return (0,0)
+        else:
+            diff = self.pad_size[0] - w
+            if diff % 2 == 0:
+                return (diff // 2, diff // 2)
+            else:
+                return (diff // 2, diff // 2 + 1)
+    
+    def _pad(self, 
+             img:np.ndarray, 
+             out:np.ndarray, 
+             pad_h:tuple, pad_w:tuple, 
+            ):
+        height, width, _ = out.shape
+        out[pad_h[0]:height-pad_h[1], pad_w[0]:width-pad_w[1], :] = img
+        return out
+
+    def __call__(self, img:np.ndarray):
+        if self.pad_size:
+            if len(img.shape) == 3:
+                h, w, c = img.shape
+            elif len(img.shape) == 2:
+                img = np.expand_dims(img, axis=-1)
+                img = np.concatenate([img, img, img], axis=-1)
+                h, w, c = img.shape
+                print(img.shape)
+            else:
+                raise Exception('img must have 2 or 3 dims!')
+            
+            pad_h = self.get_pad_h(h)
+            pad_w = self.get_pad_w(w)
+            out = np.zeros((self.pad_size[1], self.pad_size[0], c), dtype=np.uint8)
+            padded_img = self._pad(img, out, pad_h, pad_w)
+            return padded_img
+        else:
+            print(f'pad size not initialized')
+            return img
+
+
 def read_img(path:str) -> Tensor:
     return read_image(path)
 

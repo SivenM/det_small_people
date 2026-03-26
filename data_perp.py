@@ -400,7 +400,7 @@ class CropDataset(Dataset):
 
 class CropDatasetV2(CropDataset):
 
-    def __init__(self, data_path:str, labels:list, transform=None, target_transforms=None, pad_size = (50, 50), len_seq:int=10):
+    def __init__(self, data_path:str, labels:list, transform=None, target_transforms=None, pad_size = (50, 50), len_seq:int=10, times_mode=False):
         super().__init__()
         self.pad_size = pad_size
         self.digit_labels = self._create_labels(labels)
@@ -412,6 +412,7 @@ class CropDatasetV2(CropDataset):
         self.transform = transform
         self.target_transforms = target_transforms
         self.len_seq = len_seq
+        self.times_mode = times_mode
 
     def __len__(self):
         return len(self.path_list)    
@@ -442,6 +443,7 @@ class CropDatasetV2(CropDataset):
             sample = torch.tensor(sample)
             sample = sample.to(torch.float32)
             sample /= 255.
+            
 
         if self.target_transforms:
             label = self.target_transforms(label)
@@ -450,6 +452,8 @@ class CropDatasetV2(CropDataset):
             
         if self.pad:
             sample = self.pad.get_pad(sample)
+        if self.times_mode:
+            sample = sample.unsqueeze(1)   
         return sample, label
     
     
@@ -475,6 +479,39 @@ class TestCropDataset(CropDataset):
             sample = self.pad.get_pad(sample)
         return sample, label, {'size':sample_size, 'path': data_path}    
     
+
+class TestCropDatasetV2(CropDatasetV2):
+    def __init__(self, data_path, labels, transform=None, target_transforms=None, pad_size=(50, 50), len_seq = 10, times_mode=False):
+        super().__init__(data_path, labels, transform, target_transforms, pad_size, len_seq, times_mode)
+
+    def __getitem__(self, index):
+        curr_path = self.path_list[index]
+        name = curr_path.split('/')[-1].split('.')[0]
+        c_sample, label = self.from_pickle(curr_path)
+        assert len(c_sample) == self.len_seq, f'wrong seq len: actual {len(c_sample)} vs {self.len_seq}'
+        sample = self.prepare_sample(c_sample)
+        sample_size = sample.shape[:2]
+        label = self.prepare_label(label)
+        if self.transform:
+            sample = self.transform(sample)
+        else:
+            sample = torch.tensor(sample)
+            sample = sample.to(torch.float32)
+            sample /= 255.
+            
+
+        if self.target_transforms:
+            label = self.target_transforms(label)
+        else:
+            label = torch.tensor(label)
+            
+        if self.pad:
+            sample = self.pad.get_pad(sample)
+        if self.times_mode:
+            sample = sample.unsqueeze(1)   
+        return c_sample, sample, label, {'size':sample_size, 'name': name}    
+        
+
 
 class Resizer:
     def __init__(self, size):

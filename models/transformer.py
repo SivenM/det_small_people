@@ -161,7 +161,7 @@ class VisTransformerMean(nn.Module):
 
     def forward(self, x):
         encoded = self.encoder(x)
-        blocks_out = self.transformer_blocks(encoded)
+        blocks_out:torch.Tensor = self.transformer_blocks(encoded)
         avg = blocks_out.mean(dim=(1,2))
         avg = avg.unsqueeze(1)
         out = self.head(avg)
@@ -695,7 +695,7 @@ class TimeSformerBlock(nn.Module):
                 ):
         super().__init__()
         self.spatial_norm = nn.LayerNorm(emb_dim)
-        self.spatial_attention = layers.MultiHeadAttention(emb_dim, num_heads)
+        self.spatial_attention = layers.MultiHeadAttention(emb_dim, num_heads,)
         self.drop1 = nn.Dropout(dropout_brob)
 
         self.temporal_norm = nn.LayerNorm(emb_dim)
@@ -731,9 +731,9 @@ class TimeSformer(nn.Module):
     def __init__(self, 
                 num_blocks:int=5,
                 emb_dim:int=256,
-                #patch_size:int=16,
-                num_output_channels:list=[64, 128],
-                num_patches:int=1200,
+                patch_size:int=5,
+                num_output_channels:list=None, #[64, 128]
+                num_patches:int=100,
                 num_frames:int=10,
                 num_heads:int=8,
                 hidden_dim:int=1024,
@@ -746,8 +746,10 @@ class TimeSformer(nn.Module):
         self.num_blocks = num_blocks
         self.num_frames = num_frames
         self.stochastic_depth_rate = stochastic_depth_rate
-        self.patch_embed = layers.PatchEncoderSeqDeep(emb_dim, num_output_channels)
-        #self.patch_embed = layers.PatchEncoderSeq(emb_dim, patch_size)
+        if num_output_channels:
+            self.patch_embed = layers.PatchEncoderSeqDeep(emb_dim, num_output_channels)
+        else:
+            self.patch_embed = layers.PatchEncoderSeq(emb_dim, patch_size)
         self.pos_embed = torch.nn.Parameter(torch.zeros(1, num_patches, emb_dim))
         self.time_embed = torch.nn.Parameter(torch.zeros(1, num_frames, emb_dim))
         self.drop_pos = nn.Dropout(dropout_brob)
@@ -774,6 +776,50 @@ class TimeSformer(nn.Module):
         x = self.norm(x)
         return x
     
+
+class TimeSfromerCls(nn.Module):
+    def __init__(self,
+                num_blocks:int=1,
+                num_cls:int=1,
+                emb_dim:int=256,
+                patch_size:int=5,
+                num_frames:int=10,
+                num_patches:int=100,
+                num_heads:int=4,
+                hidden_dim:int=256,
+                stochastic_depth_rate:float=0.1,
+                ):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.num_blocks = num_blocks
+        self.num_frames = num_frames
+        self.stochastic_depth_rate = stochastic_depth_rate
+        self.encoder = TimeSformer(
+            num_blocks,
+            emb_dim,
+            patch_size,
+            None,
+            num_patches,
+            num_frames,
+            num_heads,
+            hidden_dim
+            )
+        self.seq_pool = layers.SeqPool(256)
+        self.head = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.GELU(),
+            nn.Linear(256, num_cls),
+            nn.Sigmoid() if num_cls == 1 else nn.Identity()
+        )
+    
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.seq_pool(x)
+        x = self.head(x)
+        if not self.training:
+            return F.softmax(x, dim=1)
+        else:
+            return x
 
 
 def _get_activation_fn(activation):

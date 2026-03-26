@@ -1,7 +1,7 @@
 import sys
 from data_perp import CropDatasetV2
 from coaching import Coach
-from models.transformer import VisTransformer, VisTransformerMean
+from models.transformer import VisTransformer, VisTransformerMean, TimeSfromerCls
 import argparse
 import yaml
 import torch
@@ -27,24 +27,39 @@ def get_args():
         return
 
 
+
+def get_model(config:dict) -> torch.nn.Module:
+    if config['model_type'] == 'seqpool':
+        return VisTransformer(
+            num_blocks=config['num_blocks'], 
+            num_cls=len(config['labels']),
+            input_c=config['len_seq']
+            )
+    elif config['model_type'] == 'mean':
+        return VisTransformerMean(
+            num_blocks=config['num_blocks'], 
+            num_cls=len(config['labels']),
+            input_c=config['len_seq']
+            )
+    elif config['model_type'] == 'timesformer':
+        return TimeSfromerCls(
+            num_blocks=config['num_blocks'],
+            num_cls=len(config['labels']),
+            patch_size=config['patch_size'],
+            num_frames=config['len_seq'],
+            num_patches=(config['pad_size'][0] * config['pad_size'][1])//config['patch_size']**2,
+            num_heads=config['num_heads'],
+            hidden_dim=config['hidden_dim']
+        )
+    else:
+        raise f'wrong model type: {config['model_type']}'
+
+
 def main(config_list:list[dict]):
     for config in config_list:
         print_cfg(config)
         coach = Coach(config['name'], config['save_dir'], metric='multi_acc')
-        if config['model_type'] == 'seqpool':
-            model = VisTransformer(
-                num_blocks=config['num_blocks'], 
-                num_cls=len(config['labels']),
-                input_c=config['len_seq']
-                )
-        elif config['model_type'] == 'mean':
-            model = VisTransformerMean(
-                num_blocks=config['num_blocks'], 
-                num_cls=len(config['labels']),
-                input_c=config['len_seq']
-                )
-        else:
-            raise f'wrong model type: {config['model_type']}'
+        model = get_model(config)
         
         #sample_transforms = transforms.Compose([
         #    transforms.ToTensor(),
@@ -52,10 +67,14 @@ def main(config_list:list[dict]):
         #    std=[0.224 for _ in range(config['len_seq'])])          #[0.229, 0.224, 0.225, 0.229, 0.224, 0.225, 0.229, 0.224, 0.225, 0.225] )
         #    ])
         #target_transforms = transforms.Lambda(lambda x: torch.tensor(x, dtype=torch.long)) 
-        train_dataset = CropDatasetV2(config['train_data_path'], config['labels'], None, None, len_seq=config['len_seq'])
-        val_dataset = CropDatasetV2(config['val_data_path'], config['labels'], None, None, len_seq=config['len_seq'])
-        train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-        val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=True)
+        if config['model_type'] == 'timesformer':
+            times_mode = True
+        else:
+            times_mode = False
+        train_dataset = CropDatasetV2(config['train_data_path'], config['labels'], None, None, len_seq=config['len_seq'], times_mode=times_mode)
+        val_dataset = CropDatasetV2(config['val_data_path'], config['labels'], None, None, len_seq=config['len_seq'], times_mode=times_mode)
+        train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
+        val_dataloader = DataLoader(val_dataset, batch_size=config['batch_size'], shuffle=True)
         loss_fn = torch.nn.CrossEntropyLoss()
         #optimizator = torch.optim.Adam(model.parameters(), lr=config['lr'])
         try:

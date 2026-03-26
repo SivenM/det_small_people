@@ -3,6 +3,8 @@ import matplotlib.pylab as plt
 import cv2
 from numpy import ndarray
 import utils
+import numpy as np
+import math
 
 
 def draw_bboxes(
@@ -79,3 +81,44 @@ def scatter_metric(x_data:list, y_metric:list, x_name:str, metric_name:str, save
     if show:
         plt.tight_layout()
         plt.show()
+
+
+def get_pad_size(samples:list[np.ndarray]) -> tuple:
+    sizes = [x.shape for x in samples]
+    heights = [size[0] for size in sizes]
+    weights = [size[1] for size in sizes]
+    return (max(weights), max(heights))
+
+
+def put_samples_in_image(samples:list[np.ndarray], image:np.ndarray, num_columns:int) -> np.ndarray:
+    j = 0
+    for i, sample in enumerate(samples):
+        h, w, _ = sample.shape
+        if i == 0:
+            image[0:h, 0:w, :] = sample
+        else:
+            val = i % num_columns
+            if val == 0:
+                j += 1
+            image[j*h:j*h+h, val*w:val*w+w, :] = sample
+    return image
+
+
+def get_vis(samples:list[np.ndarray], num_columns:int=10) -> np.ndarray:
+    num_images = len(samples)
+    pad_size = get_pad_size(samples)
+    padding = utils.ZeroPad(pad_size)
+    padded_samples = []
+    for sample in samples:
+        padded_samples.append(padding(sample))
+    num_raws = math.ceil(num_images / num_columns)
+    vis_image = np.zeros(
+        shape=(
+            num_raws * padded_samples[0].shape[0], 
+            num_columns * padded_samples[0].shape[1], 
+            padded_samples[0].shape[2]
+            ), 
+        dtype=padded_samples[0].dtype
+        )
+    vis_image = put_samples_in_image(padded_samples, vis_image, num_columns)
+    return vis_image

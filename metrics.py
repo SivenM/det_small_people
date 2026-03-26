@@ -19,7 +19,29 @@ class MultiMetrics:
         }
 
 
+class TestMultiMetrics:
+    '''
+    Считает метрики acc, precision, recall
+    '''
+    def __init__(self):
+        self.count = 0
+        self.multi_metrics = MultiMetrics()
+        self.acc = 0
+        self.prec = 0
+        self.recall = 0
 
+    def update(self, pred, gt):
+        result = self.multi_metrics(pred, gt)
+        self.acc += result['acc']
+        self.prec += result['precision']
+        self.recall += result['recall']
+        self.count += 1
+
+    def put(self):
+        acc = self.acc / self.count
+        prec = self.prec / self.count
+        recall = self.recall / self.count
+        return acc, prec, recall
 
 def to_corners(bboxes):
     if type(bboxes) == ndarray:
