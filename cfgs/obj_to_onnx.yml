@@ -1,0 +1,11 @@
+model_path: runs/sequense_cls/v2/obj_TimeSformer_10_1_1b_h4_hd1024_dv2_chunk1/models/best_loss_0.39.pth
+model_type: timesformer
+num_blocks: 1
+len_seq: 10
+pad_size: [50, 50]
+num_heads: 4
+hidden_dim: 1024
+patch_size: 5
+num_cls: 2
+input_size: [1,10,1,50,50]
+save_path: onnx_models/timesformer_10_1_1b_h4_hd1024_dv2_chunk1.onnx
